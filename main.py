@@ -540,8 +540,8 @@ def main():
         "No alert means no setup passed the configured filter."
     )
 
-                send_forex_lesson()
-    log.info("Scan complete. Alerts=%s Issues=%s", sent, issues)
+                
+        log.info("Scan complete. Alerts=%s Issues=%s", sent, issues)
 
 
 if __name__ == "__main__":
