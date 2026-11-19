@@ -17,7 +17,7 @@ API_KEY = os.getenv("TWELVE_DATA_API_KEY", "")
 SYMBOLS = os.getenv(
     "SYMBOLS",
     "EUR/USD,GBP/USD,USD/JPY,AUD/USD,USD/CAD,"
-    "NZD/USD,XAU/USD,XAG/USD"
+    "NZD/USD, XAU/USD"
 ).split(",")
 
 TIMEFRAMES = os.getenv(
