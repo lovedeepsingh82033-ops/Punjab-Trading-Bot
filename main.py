@@ -79,6 +79,22 @@ def send_message(message):
 
 # ---------------- MARKET DATA ----------------
 
+# FOREX LEARNING MODE
+
+FOREX_LESSONS = [
+    "Lesson 1: What is Forex? Forex is the market where one currency is exchanged for another.",
+    "Lesson 2: What is a Currency Pair? EUR/USD shows the Euro against the US Dollar.",
+    "Lesson 3: What is a Pip? A pip is a standard unit used to measure price movement.",
+    "Lesson 4: What is Spread? Spread is the difference between the buying and selling price.",
+    "Lesson 5: What is Stop Loss? A stop loss helps limit potential trading losses."
+]
+
+def send_forex_lesson():
+    lesson_number = int(time.time() // 86400) % len(FOREX_LESSONS)
+    message = "🎓 <b>PUNJAB FOREX ACADEMY</b>\n\n" + FOREX_LESSONS[lesson_number]
+    send_message(message)
+
+
 def fetch_data(symbol, timeframe):
 
     if timeframe == "M2":
@@ -524,7 +540,8 @@ def main():
         "No alert means no setup passed the configured filter."
     )
 
-    log.info("Scan complete. Alerts=%s Issues=%s", sent, issues)
+            send_forex_lesson()
+        log.info("Scan complete. Alerts=%s Issues=%s", sent, issues)
 
 
 if __name__ == "__main__":
