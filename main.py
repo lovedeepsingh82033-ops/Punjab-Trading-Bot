@@ -502,7 +502,7 @@ def main():
     issues = 0
 
     for symbol in SYMBOLS:
-
+            log.info("Scan complete. Alerts=%s Issues=%s", sent, issues)
         symbol = symbol.strip().upper()
 
         for timeframe in TIMEFRAMES:
