@@ -13,9 +13,8 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # ==========================================================
-# PUNJAB TRADING SCANNER - ADVANCED PAPER EDITION
-# Educational market analysis and historical paper testing.
-# NO broker connection. NO live orders.
+# PUNJAB ADVANCED SCANNER + HISTORICAL PAPER BACKTEST
+# Educational analysis only. No broker. No live orders.
 # ==========================================================
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
@@ -29,35 +28,32 @@ SYMBOLS = [
 ]
 
 TIMEFRAMES = {
-    "M1": ("1min", 1),
-    "M2": ("2min", 2),
-    "M5": ("5min", 5),
-    "M10": ("10min", 10),
+    "M1": "1min",
+    "M2": "2min",
+    "M5": "5min",
+    "M10": "10min",
 }
 
 OUTPUT_SIZE = 500
 MIN_CANDLES = 45
+FORWARD_CANDLES = 3
 REQUEST_DELAY = 1.5
 
 SIGNAL_FILE = Path("signal_history.csv")
-HISTORY_DIR = Path("market_history")
+BACKTEST_FILE = Path("backtest_history.csv")
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
 
-# ---------------- HTTP SESSION ----------------
-
 session = requests.Session()
-
 retry = Retry(
     total=3,
     backoff_factor=1,
     status_forcelist=[429, 500, 502, 503, 504],
     allowed_methods=["GET", "POST"],
 )
-
 adapter = HTTPAdapter(max_retries=retry)
 session.mount("https://", adapter)
 
@@ -66,7 +62,7 @@ session.mount("https://", adapter)
 
 def send_telegram(message):
     if not TELEGRAM_TOKEN or not CHAT_ID:
-        logging.warning("Telegram credentials missing.")
+        logging.warning("Telegram settings missing")
         return False
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -84,7 +80,6 @@ def send_telegram(message):
         )
         response.raise_for_status()
         return response.json().get("ok", False)
-
     except requests.RequestException as error:
         logging.error("Telegram error: %s", error)
         return False
@@ -94,31 +89,27 @@ def send_telegram(message):
 
 def fetch_market_data(symbol):
     if not API_KEY:
-        logging.error("Twelve Data API key missing.")
+        logging.error("Twelve Data API key missing")
         return None
 
-    url = "https://api.twelvedata.com/time_series"
-
-    params = {
-        "symbol": symbol,
-        "interval": "1min",
-        "outputsize": OUTPUT_SIZE,
-        "apikey": API_KEY,
-        "format": "JSON",
-        "timezone": "UTC",
-    }
-
     try:
-        response = session.get(url, params=params, timeout=30)
+        response = session.get(
+            "https://api.twelvedata.com/time_series",
+            params={
+                "symbol": symbol,
+                "interval": "1min",
+                "outputsize": OUTPUT_SIZE,
+                "apikey": API_KEY,
+                "format": "JSON",
+                "timezone": "UTC",
+            },
+            timeout=30,
+        )
         response.raise_for_status()
         data = response.json()
 
         if "values" not in data:
-            logging.warning(
-                "%s API response: %s",
-                symbol,
-                data.get("message", data),
-            )
+            logging.warning("%s: %s", symbol, data.get("message", data))
             return None
 
         df = pd.DataFrame(data["values"])
@@ -134,87 +125,42 @@ def fetch_market_data(symbol):
             subset=["datetime", "open", "high", "low", "close"]
         )
 
-        df = (
+        return (
             df.sort_values("datetime")
             .drop_duplicates("datetime")
             .set_index("datetime")
         )
-
-        return df
 
     except (requests.RequestException, ValueError, KeyError) as error:
         logging.error("%s data error: %s", symbol, error)
         return None
 
 
-# ---------------- HISTORY ----------------
-
-def save_market_history(symbol, df):
-    if df is None or df.empty:
-        return
-
-    HISTORY_DIR.mkdir(parents=True, exist_ok=True)
-
-    filename = symbol.replace("/", "_") + "_1min.csv"
-    path = HISTORY_DIR / filename
-
-    new = df.reset_index()
-    new["symbol"] = symbol
-
-    if path.exists():
-        try:
-            old = pd.read_csv(path)
-            old["datetime"] = pd.to_datetime(
-                old["datetime"], utc=True, errors="coerce"
-            )
-            new = pd.concat([old, new], ignore_index=True)
-        except (OSError, ValueError, KeyError) as error:
-            logging.warning("History read issue: %s", error)
-
-    new["datetime"] = pd.to_datetime(
-        new["datetime"], utc=True, errors="coerce"
-    )
-
-    new = (
-        new.dropna(subset=["datetime"])
-        .drop_duplicates(["datetime", "symbol"], keep="last")
-        .sort_values("datetime")
-        .tail(10000)
-    )
-
-    new.to_csv(path, index=False)
-
-
 # ---------------- TIMEFRAMES ----------------
 
-def prepare_timeframe(df, timeframe):
-    interval, minutes = TIMEFRAMES[timeframe]
+def prepare_timeframe(raw, timeframe):
+    interval = TIMEFRAMES[timeframe]
+    minutes = int(interval.replace("min", ""))
 
     if timeframe == "M1":
-        result = df.copy()
+        df = raw.copy()
     else:
-        result = df.resample(interval).agg({
+        df = raw.resample(interval).agg({
             "open": "first",
             "high": "max",
             "low": "min",
             "close": "last",
         }).dropna()
 
-    # Use completed candles only.
     now = pd.Timestamp.now(tz="UTC")
-    result = result[
-        result.index + pd.Timedelta(minutes=minutes) <= now
+    df = df[
+        df.index + pd.Timedelta(minutes=minutes) <= now
     ]
 
-    if len(result) < MIN_CANDLES:
-        logging.info(
-            "%s: insufficient completed candles for %s",
-            timeframe,
-            len(result),
-        )
+    if len(df) < MIN_CANDLES:
         return None
 
-    return result
+    return df
 
 
 # ---------------- INDICATORS ----------------
@@ -234,12 +180,11 @@ def add_indicators(df):
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
 
-    avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
+    avg_gain = gain.ewm(alpha=1 / 14, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / 14, adjust=False).mean()
 
     rs = avg_gain / avg_loss.replace(0, np.nan)
     df["rsi"] = 100 - (100 / (1 + rs))
-
     df.loc[(avg_loss == 0) & (avg_gain > 0), "rsi"] = 100
     df.loc[(avg_gain == 0) & (avg_loss > 0), "rsi"] = 0
     df["rsi"] = df["rsi"].fillna(50)
@@ -260,7 +205,7 @@ def add_indicators(df):
         (low - previous_close).abs(),
     ], axis=1).max(axis=1)
 
-    df["atr"] = tr.ewm(alpha=1/14, adjust=False).mean()
+    df["atr"] = tr.ewm(alpha=1 / 14, adjust=False).mean()
 
     up = high.diff()
     down = -low.diff()
@@ -271,20 +216,18 @@ def add_indicators(df):
     atr_safe = df["atr"].replace(0, np.nan)
 
     plus_di = (
-        100 * plus_dm.ewm(alpha=1/14, adjust=False).mean()
+        100 * plus_dm.ewm(alpha=1 / 14, adjust=False).mean()
         / atr_safe
     )
-
     minus_di = (
-        100 * minus_dm.ewm(alpha=1/14, adjust=False).mean()
+        100 * minus_dm.ewm(alpha=1 / 14, adjust=False).mean()
         / atr_safe
     )
 
     denominator = (plus_di + minus_di).replace(0, np.nan)
-
     dx = 100 * (plus_di - minus_di).abs() / denominator
 
-    df["adx"] = dx.ewm(alpha=1/14, adjust=False).mean()
+    df["adx"] = dx.ewm(alpha=1 / 14, adjust=False).mean()
     df["adx"] = df["adx"].fillna(0)
 
     df["support"] = low.rolling(20).min()
@@ -293,22 +236,18 @@ def add_indicators(df):
     return df
 
 
-# ---------------- MARKET ANALYSIS ----------------
+# ---------------- SIGNAL CALCULATION ----------------
 
-def analyze_market(df):
-    if df is None or len(df) < MIN_CANDLES:
-        return None
-
-    df = add_indicators(df)
-    row = df.iloc[-1]
-
+def calculate_signal(row):
     fields = [
         "close", "ema9", "ema21", "ema50",
         "rsi", "macd", "macd_signal",
         "atr", "adx", "support", "resistance",
     ]
 
-    if not np.isfinite(row[fields].to_numpy(dtype=float)).all():
+    if not np.isfinite(
+        row[fields].to_numpy(dtype=float)
+    ).all():
         return None
 
     buy = 0
@@ -368,9 +307,188 @@ def analyze_market(df):
         "atr": float(row["atr"]),
         "support": float(row["support"]),
         "resistance": float(row["resistance"]),
-        "time": df.index[-1].isoformat(),
         "reasons": "; ".join(reasons),
     }
+
+
+# ---------------- LIVE PAPER ANALYSIS ----------------
+
+def analyze_latest(df):
+    prepared = add_indicators(df)
+    row = prepared.iloc[-1]
+    result = calculate_signal(row)
+
+    if result is None:
+        return None
+
+    result["time"] = prepared.index[-1].isoformat()
+    return result
+
+
+def make_report(symbol, timeframe, result):
+    return (
+        "📊 <b>PUNJAB ADVANCED SCANNER</b>\n\n"
+        f"<b>Symbol:</b> {html.escape(symbol)}\n"
+        f"<b>Timeframe:</b> {timeframe}\n"
+        f"<b>Analysis:</b> {result['direction']}\n\n"
+        f"<b>Observed price:</b> {result['price']:.5f}\n"
+        f"<b>Indicator alignment:</b> {result['score']}/5\n"
+        f"<b>BUY score:</b> {result['buy_score']}\n"
+        f"<b>SELL score:</b> {result['sell_score']}\n\n"
+        f"<b>RSI:</b> {result['rsi']:.2f}\n"
+        f"<b>ADX:</b> {result['adx']:.2f}\n"
+        f"<b>ATR:</b> {result['atr']:.5f}\n"
+        f"<b>Support:</b> {result['support']:.5f}\n"
+        f"<b>Resistance:</b> {result['resistance']:.5f}\n\n"
+        f"<b>Reasons:</b> {html.escape(result['reasons'])}\n"
+        f"<b>Candle time:</b> {result['time']}\n\n"
+        "<i>Paper analysis only. No real orders.</i>"
+    )
+
+
+# ---------------- HISTORICAL BACKTEST ----------------
+
+def run_backtest(df, symbol, timeframe):
+    """
+    Historical signal is evaluated against the close
+    exactly three completed candles later.
+
+    BUY wins if future close > signal close.
+    SELL wins if future close < signal close.
+    Equal prices are neutral and excluded.
+    """
+
+    prepared = add_indicators(df)
+    records = []
+
+    if len(prepared) <= MIN_CANDLES + FORWARD_CANDLES:
+        return records
+
+    for i in range(MIN_CANDLES, len(prepared) - FORWARD_CANDLES):
+        row = prepared.iloc[i]
+        signal = calculate_signal(row)
+
+        if signal is None:
+            continue
+
+        direction = signal["direction"]
+
+        if direction == "WAIT":
+            continue
+
+        entry = float(row["close"])
+        future = float(
+            prepared.iloc[i + FORWARD_CANDLES]["close"]
+        )
+
+        if direction == "BUY ANALYSIS":
+            outcome = (
+                "WIN" if future > entry
+                else "LOSS" if future < entry
+                else "NEUTRAL"
+            )
+        else:
+            outcome = (
+                "WIN" if future < entry
+                else "LOSS" if future > entry
+                else "NEUTRAL"
+            )
+
+        change_pct = (
+            ((future - entry) / entry) * 100
+            if entry != 0 else 0
+        )
+
+        records.append({
+            "tested_at": datetime.now(timezone.utc).isoformat(),
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "signal_time": prepared.index[i].isoformat(),
+            "direction": direction,
+            "entry_close": entry,
+            "future_close": future,
+            "future_candles": FORWARD_CANDLES,
+            "outcome": outcome,
+            "market_change_pct": change_pct,
+        })
+
+    return records
+
+
+def save_backtest(records):
+    if not records:
+        return
+
+    new = pd.DataFrame(records)
+
+    if BACKTEST_FILE.exists():
+        try:
+            old = pd.read_csv(BACKTEST_FILE)
+            new = pd.concat([old, new], ignore_index=True)
+        except (OSError, ValueError) as error:
+            logging.warning("Backtest history read issue: %s", error)
+
+    new = new.drop_duplicates(
+        subset=["symbol", "timeframe", "signal_time"],
+        keep="last",
+    )
+
+    new.to_csv(BACKTEST_FILE, index=False)
+
+
+def backtest_summary(all_records):
+    if not all_records:
+        return (
+            "📊 <b>PUNJAB BACKTEST</b>\n\n"
+            "Not enough historical data or no qualifying signals.\n"
+            "No performance result available."
+        )
+
+    df = pd.DataFrame(all_records)
+    wins = int((df["outcome"] == "WIN").sum())
+    losses = int((df["outcome"] == "LOSS").sum())
+    neutral = int((df["outcome"] == "NEUTRAL").sum())
+    decided = wins + losses
+
+    rate = wins / decided * 100 if decided else 0
+
+    lines = [
+        "📊 <b>PUNJAB HISTORICAL PAPER BACKTEST</b>",
+        "",
+        f"Signals tested: {len(df)}",
+        f"Wins: {wins}",
+        f"Losses: {losses}",
+        f"Neutral: {neutral}",
+        f"Win rate on decided signals: {rate:.2f}%",
+        "",
+        f"Evaluation: next {FORWARD_CANDLES} candles",
+        "",
+        "<b>By market and timeframe:</b>",
+    ]
+
+    grouped = df.groupby(["symbol", "timeframe"])
+
+    for (symbol, timeframe), group in grouped:
+        w = int((group["outcome"] == "WIN").sum())
+        l = int((group["outcome"] == "LOSS").sum())
+        n = int((group["outcome"] == "NEUTRAL").sum())
+        total = w + l
+        pct = w / total * 100 if total else 0
+
+        lines.append(
+            f"{html.escape(symbol)} {timeframe}: "
+            f"{w}W / {l}L / {n}N ({pct:.1f}%)"
+        )
+
+    lines.extend([
+        "",
+        "<i>Historical paper results only. "
+        "Not a forecast or guarantee. "
+        "No spread, fees or slippage included. "
+        "No real orders placed.</i>",
+    ])
+
+    return "\n".join(lines)
 
 
 # ---------------- SIGNAL HISTORY ----------------
@@ -390,7 +508,7 @@ def save_signal(symbol, timeframe, result):
             old = pd.read_csv(SIGNAL_FILE)
             new = pd.concat([old, new], ignore_index=True)
         except (OSError, ValueError) as error:
-            logging.warning("Signal history read issue: %s", error)
+            logging.warning("Signal history issue: %s", error)
 
     new = new.drop_duplicates(
         subset=["symbol", "timeframe", "time"],
@@ -400,44 +518,16 @@ def save_signal(symbol, timeframe, result):
     new.to_csv(SIGNAL_FILE, index=False)
 
 
-# ---------------- REPORT ----------------
-
-def make_report(symbol, timeframe, result):
-    safe_symbol = html.escape(symbol)
-    direction = html.escape(result["direction"])
-    reasons = html.escape(result["reasons"])
-
-    return (
-        "📊 <b>PUNJAB ADVANCED SCANNER</b>\n\n"
-        f"<b>Symbol:</b> {safe_symbol}\n"
-        f"<b>Timeframe:</b> {timeframe}\n"
-        f"<b>Analysis:</b> {direction}\n\n"
-        f"<b>Observed price:</b> {result['price']:.5f}\n"
-        f"<b>Indicator alignment:</b> {result['score']}/5\n"
-        f"<b>BUY score:</b> {result['buy_score']}\n"
-        f"<b>SELL score:</b> {result['sell_score']}\n\n"
-        f"<b>RSI:</b> {result['rsi']:.2f}\n"
-        f"<b>ADX:</b> {result['adx']:.2f}\n"
-        f"<b>ATR:</b> {result['atr']:.5f}\n"
-        f"<b>Support estimate:</b> {result['support']:.5f}\n"
-        f"<b>Resistance estimate:</b> {result['resistance']:.5f}\n\n"
-        f"<b>Analysis reasons:</b>\n{reasons}\n\n"
-        f"<b>Candle time:</b> {result['time']}\n\n"
-        "<i>Educational paper analysis only. "
-        "Indicator alignment is not a win probability. "
-        "No real orders are placed.</i>"
-    )
-
-
 # ---------------- MAIN ----------------
 
 def main():
-    logging.info("Punjab Advanced Scanner started.")
+    logging.info("Punjab Scanner and Backtest started")
 
     sent = 0
     saved = 0
-    issues = 0
     scanned = 0
+    issues = 0
+    all_backtest_records = []
 
     for symbol in SYMBOLS:
         logging.info("Scanning %s", symbol)
@@ -449,59 +539,74 @@ def main():
             time.sleep(REQUEST_DELAY)
             continue
 
-        try:
-            save_market_history(symbol, market)
-        except (OSError, ValueError) as error:
-            logging.error("History error for %s: %s", symbol, error)
-            issues += 1
-
         for timeframe in TIMEFRAMES:
             try:
                 prepared = prepare_timeframe(market, timeframe)
 
                 if prepared is None:
+                    logging.info(
+                        "%s %s: insufficient candles",
+                        symbol, timeframe,
+                    )
                     continue
 
-                result = analyze_market(prepared)
+                # Latest paper analysis
+                result = analyze_latest(prepared)
 
-                if result is None:
-                    continue
+                if result is not None:
+                    scanned += 1
+                    save_signal(symbol, timeframe, result)
+                    saved += 1
 
-                scanned += 1
-                save_signal(symbol, timeframe, result)
-                saved += 1
+                    if result["direction"] != "WAIT":
+                        if send_telegram(
+                            make_report(symbol, timeframe, result)
+                        ):
+                            sent += 1
 
-                if result["direction"] != "WAIT":
-                    if send_telegram(
-                        make_report(symbol, timeframe, result)
-                    ):
-                        sent += 1
+                # Historical backtesting
+                records = run_backtest(
+                    prepared, symbol, timeframe
+                )
+                all_backtest_records.extend(records)
 
             except Exception:
                 logging.exception(
-                    "Analysis failed: %s %s",
-                    symbol,
-                    timeframe,
+                    "Analysis error: %s %s",
+                    symbol, timeframe,
                 )
                 issues += 1
 
         time.sleep(REQUEST_DELAY)
 
+    save_backtest(all_backtest_records)
+
+    # Send historical backtest report
+    backtest_message = backtest_summary(
+        all_backtest_records
+    )
+    backtest_sent = send_telegram(backtest_message)
+
     summary = (
         "✅ <b>PUNJAB SCAN COMPLETE</b>\n\n"
         f"Markets checked: {len(SYMBOLS)}\n"
-        f"Timeframe analyses: {scanned}\n"
-        f"Records saved: {saved}\n"
+        f"Latest analyses: {scanned}\n"
+        f"Signal records saved: {saved}\n"
         f"Analysis alerts sent: {sent}\n"
+        f"Historical signals tested: {len(all_backtest_records)}\n"
+        f"Backtest report sent: {'Yes' if backtest_sent else 'No'}\n"
         f"Data or analysis issues: {issues}\n\n"
-        "<i>Paper analysis only. No real orders placed.</i>"
+        "<i>Educational paper analysis only. "
+        "No real orders placed.</i>"
     )
 
     send_telegram(summary)
 
     logging.info(
-        "Completed | Scanned=%s Saved=%s Sent=%s Issues=%s",
-        scanned, saved, sent, issues,
+        "Completed | Analyses=%s Saved=%s Alerts=%s "
+        "Backtests=%s Issues=%s",
+        scanned, saved, sent,
+        len(all_backtest_records), issues,
     )
 
 
