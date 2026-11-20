@@ -443,6 +443,7 @@ def main():
             )
 
             if signal:
+                save_signal_history(signal)
                 if send_message(make_report(signal)):
                     sent += 1
 
@@ -466,3 +467,25 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # ================= SIGNAL HISTORY =================
+
+def save_signal_history(signal):
+    history_file = "signal_history.csv"
+
+    record = {
+        "time": datetime.now(timezone.utc).isoformat(),
+        "symbol": signal["symbol"],
+        "timeframe": signal["timeframe"],
+        "direction": signal["direction"],
+        "score": signal["score"],
+        "entry": signal["entry"],
+        "stop_loss": signal["stop_loss"],
+        "take_profit": signal["take_profit"]
+    }
+
+    pd.DataFrame([record]).to_csv(
+        history_file,
+        mode="a",
+        header=not os.path.exists(history_file),
+        index=False
+    )
