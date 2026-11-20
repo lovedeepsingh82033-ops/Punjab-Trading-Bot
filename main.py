@@ -73,7 +73,7 @@ def fetch_data(symbol):
     params = {
         "symbol": symbol,
         "interval": "1min",
-        "outputsize": 500,
+        "outputsize": 1000,
         "apikey": API_KEY,
         "timezone": "UTC"
     }
