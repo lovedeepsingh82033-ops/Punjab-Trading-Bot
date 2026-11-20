@@ -1,22 +1,30 @@
-name: Punjab Trading Signals Bot
+name: Punjab Market Scanner
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: punjab-market-scanner
+  cancel-in-progress: false
 
 jobs:
-  trading-signals:
+  market-scan:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -25,18 +33,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run trading signal scanner
+      - name: Run market scanner
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
         run: python main.py
 
-      - name: Save signal history as workflow artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: punjab-signal-history
-          path: signal_history.csv
-          if-no-files-found: ignore
-          retention-days: 30
+      - name: Persist signal history
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add signal_history.csv
+          if git diff --cached --quiet; then
+            echo "No new history records to commit."
+          else
+            git commit -m "Update market signal history"
+            git push
+          fi
