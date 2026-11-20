@@ -2,18 +2,22 @@
 import os
 import time
 import logging
+from pathlib import Path
+from datetime import datetime, timezone
+
 import requests
 import pandas as pd
 import numpy as np
-from datetime import datetime, timezone
 
-# ==================================================
-# PUNJAB TRADING BOT - EDUCATIONAL / PAPER TESTING
-# ==================================================
+# =========================================================
+# PUNJAB TRADING SCANNER
+# Educational analysis and paper testing only.
+# NO broker connection. NO real-money orders.
+# =========================================================
 
-TOKEN = os.getenv("TELEGRAM_TOKEN", "")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 CHAT_ID = os.getenv("CHAT_ID", "")
-API_KEY = os.getenv("TWELVE_DATA_API_KEY", "")
+TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY", "")
 
 SYMBOLS = [
     "EUR/USD",
@@ -26,105 +30,88 @@ SYMBOLS = [
 ]
 
 TIMEFRAMES = {
+    "M1": "1min",
     "M2": "2min",
     "M5": "5min",
     "M10": "10min",
 }
 
-API_URL = "https://api.twelvedata.com/time_series"
-DELAY = 2
-HISTORY_FILE = "signal_history.csv"
+OUTPUT_SIZE = 500
+HISTORY_FOLDER = Path("market_history")
+SIGNAL_FILE = Path("signal_history.csv")
+REQUEST_DELAY = 1.2
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
+    format="%(asctime)s | %(levelname)s | %(message)s",
 )
 
+session = requests.Session()
 
-# ==================================================
-# TELEGRAM
-# ==================================================
 
-def send_message(message):
-    if not TOKEN or not CHAT_ID:
-        logging.error("Telegram secrets are missing.")
+def send_telegram(message):
+    if not TELEGRAM_TOKEN or not CHAT_ID:
+        logging.warning("Telegram credentials are missing.")
         return False
 
-    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    url = (
+        f"https://api.telegram.org/"
+        f"bot{TELEGRAM_TOKEN}/sendMessage"
+    )
 
     try:
-        response = requests.post(
+        response = session.post(
             url,
             data={
                 "chat_id": CHAT_ID,
                 "text": message,
                 "parse_mode": "HTML",
+                "disable_web_page_preview": True,
             },
             timeout=20,
         )
         response.raise_for_status()
-
-        result = response.json()
-
-        if not result.get("ok"):
-            logging.error("Telegram API returned an error.")
-            return False
-
-        return True
+        return response.json().get("ok", False)
 
     except requests.RequestException as error:
         logging.error("Telegram error: %s", error)
         return False
 
 
-# ==================================================
-# MARKET DATA
-# ==================================================
-
-def fetch_data(symbol):
-    if not API_KEY:
+def fetch_market_data(symbol):
+    if not TWELVE_DATA_API_KEY:
         logging.error("Twelve Data API key is missing.")
         return None
+
+    url = "https://api.twelvedata.com/time_series"
 
     params = {
         "symbol": symbol,
         "interval": "1min",
-        "outputsize": 500,
+        "outputsize": OUTPUT_SIZE,
+        "apikey": TWELVE_DATA_API_KEY,
+        "format": "JSON",
         "timezone": "UTC",
-        "apikey": API_KEY,
     }
 
     try:
-        response = requests.get(
-            API_URL,
+        response = session.get(
+            url,
             params=params,
             timeout=30,
         )
         response.raise_for_status()
+        data = response.json()
 
-        result = response.json()
-
-        if "values" not in result:
-            logging.error(
-                "No market data for %s: %s",
+        if "values" not in data:
+            logging.warning(
+                "%s: API response: %s",
                 symbol,
-                result.get("message", "Unknown API response"),
+                data.get("message", data),
             )
             return None
 
-        df = pd.DataFrame(result["values"])
-
-        required = [
-            "datetime",
-            "open",
-            "high",
-            "low",
-            "close",
-        ]
-
-        if not all(column in df.columns for column in required):
-            logging.error("Missing columns for %s", symbol)
-            return None
+        df = pd.DataFrame(data["values"])
 
         for column in ["open", "high", "low", "close"]:
             df[column] = pd.to_numeric(
@@ -148,106 +135,103 @@ def fetch_data(symbol):
             ]
         )
 
+        df = df.sort_values("datetime")
+        df = df.drop_duplicates("datetime")
         df = df.set_index("datetime")
-        df = df.sort_index()
-        df = df[~df.index.duplicated(keep="last")]
-
-        if len(df) < 50:
-            logging.warning("Not enough candles for %s", symbol)
-            return None
 
         return df
 
-    except (
-        requests.RequestException,
-        ValueError,
-        KeyError,
-    ) as error:
-        logging.error("Data error for %s: %s", symbol, error)
+    except (requests.RequestException, ValueError, KeyError) as error:
+        logging.error("%s data error: %s", symbol, error)
         return None
 
 
-# ==================================================
-# TIMEFRAME CONVERSION
-# ==================================================
+def save_market_history(symbol, df):
+    if df is None or df.empty:
+        return
 
-def convert_timeframe(df, timeframe):
-    rule = TIMEFRAMES.get(timeframe)
+    HISTORY_FOLDER.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
-    if rule is None:
-        return None
+    safe_symbol = symbol.replace("/", "_")
+    file_path = HISTORY_FOLDER / f"{safe_symbol}_1min.csv"
 
-    try:
-        converted = df.resample(rule).agg({
-            "open": "first",
-            "high": "max",
-            "low": "min",
-            "close": "last",
-        })
+    saved = df.reset_index()
+    saved["symbol"] = symbol
 
-        converted = converted.dropna()
+    if file_path.exists():
+        try:
+            old = pd.read_csv(file_path)
+            old["datetime"] = pd.to_datetime(
+                old["datetime"],
+                utc=True,
+                errors="coerce",
+            )
+            saved = pd.concat(
+                [old, saved],
+                ignore_index=True,
+            )
+        except (OSError, ValueError, KeyError) as error:
+            logging.warning(
+                "Could not read old history for %s: %s",
+                symbol,
+                error,
+            )
 
-        if len(converted) < 30:
-            return None
+    saved = saved.dropna(subset=["datetime"])
+    saved = saved.drop_duplicates(
+        subset=["datetime", "symbol"],
+        keep="last",
+    )
+    saved = saved.sort_values("datetime")
+    saved = saved.tail(10000)
 
-        return converted
-
-    except (ValueError, KeyError) as error:
-        logging.error("Resampling error: %s", error)
-        return None
+    saved.to_csv(file_path, index=False)
 
 
-# ==================================================
-# TECHNICAL INDICATORS
-# ==================================================
-
-def calculate_indicators(df):
+def add_indicators(df):
     df = df.copy()
 
     close = df["close"]
     high = df["high"]
     low = df["low"]
 
-    # EMA
-    df["EMA_9"] = close.ewm(
+    df["ema9"] = close.ewm(
         span=9,
         adjust=False,
     ).mean()
 
-    df["EMA_21"] = close.ewm(
+    df["ema21"] = close.ewm(
         span=21,
         adjust=False,
     ).mean()
 
-    df["EMA_50"] = close.ewm(
+    df["ema50"] = close.ewm(
         span=50,
         adjust=False,
     ).mean()
 
-    # RSI
-    change = close.diff()
+    delta = close.diff()
 
-    gain = change.clip(lower=0)
-    loss = -change.clip(upper=0)
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
 
     avg_gain = gain.ewm(
         alpha=1 / 14,
-        min_periods=14,
         adjust=False,
     ).mean()
 
     avg_loss = loss.ewm(
         alpha=1 / 14,
-        min_periods=14,
         adjust=False,
     ).mean()
 
     rs = avg_gain / avg_loss.replace(0, np.nan)
+    df["rsi"] = 100 - (100 / (1 + rs))
+    df["rsi"] = df["rsi"].fillna(50)
 
-    df["RSI"] = 100 - (100 / (1 + rs))
-    df["RSI"] = df["RSI"].fillna(50)
-
-    # MACD
     ema12 = close.ewm(
         span=12,
         adjust=False,
@@ -258,17 +242,16 @@ def calculate_indicators(df):
         adjust=False,
     ).mean()
 
-    df["MACD"] = ema12 - ema26
+    df["macd"] = ema12 - ema26
 
-    df["MACD_SIGNAL"] = df["MACD"].ewm(
+    df["macd_signal"] = df["macd"].ewm(
         span=9,
         adjust=False,
     ).mean()
 
-    # ATR
     previous_close = close.shift(1)
 
-    tr = pd.concat(
+    true_range = pd.concat(
         [
             high - low,
             (high - previous_close).abs(),
@@ -277,38 +260,36 @@ def calculate_indicators(df):
         axis=1,
     ).max(axis=1)
 
-    df["ATR"] = tr.rolling(14).mean()
+    df["atr"] = true_range.ewm(
+        alpha=1 / 14,
+        adjust=False,
+    ).mean()
 
-    # ADX
-    up_move = high.diff()
-    down_move = -low.diff()
+    plus_dm = high.diff()
+    minus_dm = -low.diff()
 
-    plus_dm = pd.Series(
-        np.where(
-            (up_move > down_move) & (up_move > 0),
-            up_move,
-            0,
-        ),
-        index=df.index,
+    plus_dm = plus_dm.where(
+        (plus_dm > minus_dm) & (plus_dm > 0),
+        0,
     )
 
-    minus_dm = pd.Series(
-        np.where(
-            (down_move > up_move) & (down_move > 0),
-            down_move,
-            0,
-        ),
-        index=df.index,
+    minus_dm = minus_dm.where(
+        (minus_dm > plus_dm) & (minus_dm > 0),
+        0,
     )
 
-    atr_safe = df["ATR"].replace(0, np.nan)
+    atr_safe = df["atr"].replace(0, np.nan)
 
     plus_di = (
-        100 * plus_dm.rolling(14).mean() / atr_safe
+        100
+        * plus_dm.ewm(alpha=1 / 14, adjust=False).mean()
+        / atr_safe
     )
 
     minus_di = (
-        100 * minus_dm.rolling(14).mean() / atr_safe
+        100
+        * minus_dm.ewm(alpha=1 / 14, adjust=False).mean()
+        / atr_safe
     )
 
     dx = (
@@ -317,314 +298,244 @@ def calculate_indicators(df):
         / (plus_di + minus_di).replace(0, np.nan)
     )
 
-    df["ADX"] = dx.rolling(14).mean()
+    df["adx"] = dx.ewm(
+        alpha=1 / 14,
+        adjust=False,
+    ).mean()
 
-    # Bollinger Bands
-    middle = close.rolling(20).mean()
-    deviation = close.rolling(20).std()
+    df["adx"] = df["adx"].fillna(0)
 
-    df["BB_MIDDLE"] = middle
-    df["BB_UPPER"] = middle + (2 * deviation)
-    df["BB_LOWER"] = middle - (2 * deviation)
+    df["support"] = low.rolling(20).min()
+    df["resistance"] = high.rolling(20).max()
 
-    # Support and resistance
-    df["SUPPORT"] = low.rolling(20).min()
-    df["RESISTANCE"] = high.rolling(20).max()
-
-    return df.dropna()
+    return df
 
 
-# ==================================================
-# SIGNAL ANALYSIS
-# ==================================================
+def prepare_timeframe(df, timeframe):
+    if timeframe == "M1":
+        result = df.copy()
+    else:
+        rule = TIMEFRAMES[timeframe]
 
-def analyze(df, symbol, timeframe):
-    if df is None or len(df) < 30:
+        result = df.resample(rule).agg({
+            "open": "first",
+            "high": "max",
+            "low": "min",
+            "close": "last",
+        })
+
+        result = result.dropna()
+
+    if len(result) < 60:
         return None
 
-    try:
-        data = calculate_indicators(df)
+    return add_indicators(result)
 
-        if data.empty:
-            return None
 
-        last = data.iloc[-1]
-        previous = data.iloc[-2]
-
-        score_buy = 0
-        score_sell = 0
-        reasons = []
-
-        # EMA trend
-        if last["EMA_9"] > last["EMA_21"]:
-            score_buy += 20
-            reasons.append("EMA trend bullish")
-
-        elif last["EMA_9"] < last["EMA_21"]:
-            score_sell += 20
-            reasons.append("EMA trend bearish")
-
-        # RSI
-        if 50 < last["RSI"] < 70:
-            score_buy += 15
-            reasons.append("RSI bullish")
-
-        elif 30 < last["RSI"] < 50:
-            score_sell += 15
-            reasons.append("RSI bearish")
-
-        # MACD
-        if last["MACD"] > last["MACD_SIGNAL"]:
-            score_buy += 15
-            reasons.append("MACD bullish")
-
-        elif last["MACD"] < last["MACD_SIGNAL"]:
-            score_sell += 15
-            reasons.append("MACD bearish")
-
-        # EMA 50 trend
-        if last["close"] > last["EMA_50"]:
-            score_buy += 15
-            reasons.append("Above EMA 50")
-
-        elif last["close"] < last["EMA_50"]:
-            score_sell += 15
-            reasons.append("Below EMA 50")
-
-        # ADX trend strength
-        if last["ADX"] >= 25:
-            if score_buy > score_sell:
-                score_buy += 10
-            elif score_sell > score_buy:
-                score_sell += 10
-
-        # Bollinger position
-        if last["close"] > last["BB_MIDDLE"]:
-            score_buy += 10
-
-        elif last["close"] < last["BB_MIDDLE"]:
-            score_sell += 10
-
-        # Recent candle direction
-        if last["close"] > previous["close"]:
-            score_buy += 5
-
-        elif last["close"] < previous["close"]:
-            score_sell += 5
-
-        if score_buy >= 60 and score_buy > score_sell:
-            direction = "BUY"
-            score = score_buy
-
-        elif score_sell >= 60 and score_sell > score_buy:
-            direction = "SELL"
-            score = score_sell
-
-        else:
-            return None
-
-        return {
-            "time": datetime.now(timezone.utc).strftime(
-                "%Y-%m-%d %H:%M:%S UTC"
-            ),
-            "symbol": symbol,
-            "timeframe": timeframe,
-            "direction": direction,
-            "score": int(score),
-            "price": float(last["close"]),
-            "rsi": float(last["RSI"]),
-            "adx": float(last["ADX"]),
-            "atr": float(last["ATR"]),
-            "support": float(last["SUPPORT"]),
-            "resistance": float(last["RESISTANCE"]),
-            "reasons": reasons,
-        }
-
-    except (
-        ValueError,
-        KeyError,
-        IndexError,
-        TypeError,
-    ) as error:
-        logging.error(
-            "Analysis error for %s %s: %s",
-            symbol,
-            timeframe,
-            error,
-        )
+def analyze_market(df):
+    if df is None or len(df) < 60:
         return None
 
+    row = df.iloc[-1]
 
-# ==================================================
-# SIGNAL REPORT
-# ==================================================
+    values = [
+        row["close"],
+        row["ema9"],
+        row["ema21"],
+        row["ema50"],
+        row["rsi"],
+        row["macd"],
+        row["macd_signal"],
+        row["atr"],
+        row["adx"],
+    ]
 
-def make_report(signal):
-    reasons = "\n".join(
-        f"• {reason}" for reason in signal["reasons"]
-    )
+    if not np.isfinite(values).all():
+        return None
 
-    return (
-        "<b>Punjab Forex Scan</b>\n\n"
-        f"<b>Symbol:</b> {signal['symbol']}\n"
-        f"<b>Timeframe:</b> {signal['timeframe']}\n"
-        f"<b>Direction:</b> {signal['direction']}\n"
-        f"<b>Score:</b> {signal['score']}/100\n"
-        f"<b>Observed price:</b> {signal['price']:.5f}\n"
-        f"<b>RSI:</b> {signal['rsi']:.2f}\n"
-        f"<b>ADX:</b> {signal['adx']:.2f}\n"
-        f"<b>ATR:</b> {signal['atr']:.5f}\n"
-        f"<b>Support:</b> {signal['support']:.5f}\n"
-        f"<b>Resistance:</b> {signal['resistance']:.5f}\n\n"
-        f"<b>Analysis:</b>\n{reasons}\n\n"
-        "<i>Educational paper-testing signal only. "
-        "Score is a heuristic, not a probability or guarantee. "
-        "Not a real trade instruction.</i>"
-    )
+    buy_score = 0
+    sell_score = 0
 
+    if row["ema9"] > row["ema21"]:
+        buy_score += 1
+    elif row["ema9"] < row["ema21"]:
+        sell_score += 1
 
-# ==================================================
-# SIGNAL HISTORY
-# ==================================================
+    if row["ema21"] > row["ema50"]:
+        buy_score += 1
+    elif row["ema21"] < row["ema50"]:
+        sell_score += 1
 
-def save_signal_history(signal):
-    record = {
-        "time": signal["time"],
-        "symbol": signal["symbol"],
-        "timeframe": signal["timeframe"],
-        "direction": signal["direction"],
-        "score": signal["score"],
-        "price": signal["price"],
-        "rsi": signal["rsi"],
-        "adx": signal["adx"],
-        "atr": signal["atr"],
-        "support": signal["support"],
-        "resistance": signal["resistance"],
+    if row["macd"] > row["macd_signal"]:
+        buy_score += 1
+    elif row["macd"] < row["macd_signal"]:
+        sell_score += 1
+
+    if 50 < row["rsi"] < 70:
+        buy_score += 1
+    elif 30 < row["rsi"] < 50:
+        sell_score += 1
+
+    if row["adx"] >= 20:
+        if buy_score > sell_score:
+            buy_score += 1
+        elif sell_score > buy_score:
+            sell_score += 1
+
+    direction = "WAIT"
+
+    if buy_score >= 4 and buy_score > sell_score:
+        direction = "BUY ANALYSIS"
+    elif sell_score >= 4 and sell_score > buy_score:
+        direction = "SELL ANALYSIS"
+
+    return {
+        "direction": direction,
+        "score": max(buy_score, sell_score),
+        "price": float(row["close"]),
+        "rsi": float(row["rsi"]),
+        "adx": float(row["adx"]),
+        "atr": float(row["atr"]),
+        "support": float(row["support"]),
+        "resistance": float(row["resistance"]),
+        "time": df.index[-1].isoformat(),
     }
 
-    try:
-        pd.DataFrame([record]).to_csv(
-            HISTORY_FILE,
-            mode="a",
-            header=not os.path.exists(HISTORY_FILE),
-            index=False,
-        )
-        return True
 
-    except (OSError, ValueError) as error:
-        logging.error("History save error: %s", error)
-        return False
+def save_signal(symbol, timeframe, result):
+    record = {
+        "recorded_at": datetime.now(
+            timezone.utc
+        ).isoformat(),
+        "symbol": symbol,
+        "timeframe": timeframe,
+        **result,
+    }
 
+    new_row = pd.DataFrame([record])
 
-# ==================================================
-# DAILY FOREX LEARNING
-# ==================================================
+    if SIGNAL_FILE.exists():
+        try:
+            old = pd.read_csv(SIGNAL_FILE)
+            new_row = pd.concat(
+                [old, new_row],
+                ignore_index=True,
+            )
+        except (OSError, ValueError) as error:
+            logging.warning("Signal history read error: %s", error)
 
-FOREX_LESSONS = [
-    "Learn the basics of currency pairs and pips.",
-    "Understand support and resistance.",
-    "Study EMA and moving averages.",
-    "Learn RSI and momentum.",
-    "Understand MACD signals.",
-    "Study ATR and market volatility.",
-    "Learn risk management concepts.",
-    "Understand trend and sideways markets.",
-    "Study candlestick patterns.",
-    "Practice with historical charts.",
-    "Learn why news affects currency markets.",
-    "Understand trading psychology.",
-    "Study spread and transaction costs.",
-    "Learn the limitations of technical indicators.",
-]
+    new_row = new_row.drop_duplicates(
+        subset=["symbol", "timeframe", "time"],
+        keep="last",
+    )
+
+    new_row.to_csv(SIGNAL_FILE, index=False)
 
 
-def get_daily_lesson():
-    day = datetime.now(timezone.utc).timetuple().tm_yday
-    index = (day - 1) % len(FOREX_LESSONS)
-    return FOREX_LESSONS[index]
+def make_report(symbol, timeframe, result):
+    direction = result["direction"]
 
+    return (
+        "<b>Punjab Trading Scanner</b>\n\n"
+        f"<b>Symbol:</b> {symbol}\n"
+        f"<b>Timeframe:</b> {timeframe}\n"
+        f"<b>Analysis:</b> {direction}\n"
+        f"<b>Indicator score:</b> {result['score']}/5\n"
+        f"<b>Observed price:</b> {result['price']:.5f}\n"
+        f"<b>RSI:</b> {result['rsi']:.2f}\n"
+        f"<b>ADX:</b> {result['adx']:.2f}\n"
+        f"<b>ATR:</b> {result['atr']:.5f}\n"
+        f"<b>Support estimate:</b> {result['support']:.5f}\n"
+        f"<b>Resistance estimate:</b> {result['resistance']:.5f}\n\n"
+        "<i>Educational indicator analysis only. "
+        "Not a trade instruction or guarantee. "
+        "No real orders are placed.</i>"
+    )
 
-# ==================================================
-# MAIN SCAN
-# ==================================================
 
 def main():
-    logging.info("Punjab Forex Scan Started")
-
-    if not API_KEY:
-        logging.error("Missing TWELVE_DATA_API_KEY.")
-        send_message(
-            "<b>Punjab Forex Bot Error</b>\n"
-            "Twelve Data API key is missing."
-        )
-        return
-
-    if not TOKEN or not CHAT_ID:
-        logging.error("Missing Telegram secrets.")
-        return
+    logging.info("Punjab Trading Scanner started.")
 
     sent = 0
     saved = 0
     issues = 0
 
     for symbol in SYMBOLS:
-        logging.info("Fetching %s", symbol)
+        logging.info("Scanning %s", symbol)
 
-        market_data = fetch_data(symbol)
+        market_data = fetch_market_data(symbol)
 
-        if market_data is None:
+        if market_data is None or market_data.empty:
             issues += 1
+            time.sleep(REQUEST_DELAY)
             continue
 
-        for timeframe in TIMEFRAMES:
-            candles = convert_timeframe(
-                market_data,
-                timeframe,
-            )
-
-            if candles is None:
-                issues += 1
-                continue
-
-            signal = analyze(
-                candles,
+        try:
+            save_market_history(symbol, market_data)
+        except (OSError, ValueError) as error:
+            logging.error(
+                "History save failed for %s: %s",
                 symbol,
-                timeframe,
+                error,
             )
+            issues += 1
 
-            if signal:
-                if save_signal_history(signal):
-                    saved += 1
+        for timeframe in TIMEFRAMES:
+            try:
+                prepared = prepare_timeframe(
+                    market_data,
+                    timeframe,
+                )
 
-                if send_message(make_report(signal)):
-                    sent += 1
+                result = analyze_market(prepared)
 
-            time.sleep(DELAY)
+                if result is None:
+                    continue
+
+                save_signal(
+                    symbol,
+                    timeframe,
+                    result,
+                )
+                saved += 1
+
+                if result["direction"] != "WAIT":
+                    if send_telegram(
+                        make_report(
+                            symbol,
+                            timeframe,
+                            result,
+                        )
+                    ):
+                        sent += 1
+
+            except Exception:
+                logging.exception(
+                    "Analysis failed: %s %s",
+                    symbol,
+                    timeframe,
+                )
+                issues += 1
+
+        time.sleep(REQUEST_DELAY)
 
     summary = (
-        "<b>Punjab Forex Scan Complete</b>\n\n"
-        f"Signals sent: {sent}\n"
-        f"History records saved: {saved}\n"
-        f"Data/analysis issues: {issues}\n\n"
-        "<b>Daily Learning:</b>\n"
-        f"{get_daily_lesson()}\n\n"
-        "<i>Educational paper testing only. "
-        "No real trades are executed.</i>"
+        "<b>Punjab Scanner Complete</b>\n\n"
+        f"Alerts sent: {sent}\n"
+        f"Records saved: {saved}\n"
+        f"Issues: {issues}\n\n"
+        "<i>Paper analysis only. No real orders placed.</i>"
     )
 
-    send_message(summary)
+    send_telegram(summary)
 
     logging.info(
-        "Scan complete. Sent=%s Saved=%s Issues=%s",
+        "Scan complete | Sent=%s Saved=%s Issues=%s",
         sent,
         saved,
         issues,
     )
 
-
-# ==================================================
-# PROGRAM START
-# ==================================================
 
 if __name__ == "__main__":
     main()
