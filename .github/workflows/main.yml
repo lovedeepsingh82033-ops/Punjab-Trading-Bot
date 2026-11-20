@@ -31,3 +31,12 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
         run: python main.py
+
+      - name: Save signal history as workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: punjab-signal-history
+          path: signal_history.csv
+          if-no-files-found: ignore
+          retention-days: 30
