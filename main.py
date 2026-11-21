@@ -30,13 +30,13 @@ TIMEFRAMES = {
     "H1": ("1h", 60),
 }
 
-OUTPUT_SIZE = 250
+OUTPUT_SIZE = 150
 MIN_CANDLES = 100
 HISTORY_FILE = "signal_history.csv"
 API_URL = "https://api.twelvedata.com/time_series"
 
 # Twelve Data request protection
-API_MIN_INTERVAL = 8.5
+API_MIN_INTERVAL = 15.5
 LAST_API_REQUEST = 0.0
 API_RATE_LIMITED = False
 
@@ -112,10 +112,24 @@ def telegram(message):
             timeout=25,
         )
         response.raise_for_status()
-        return bool(response.json().get("ok"))
+        result = response.json()
 
-    except requests.RequestException as exc:
+        if not result.get("ok"):
+            logging.error(
+                "Telegram rejected the message: %s",
+                result.get("description", result)
+            )
+            return False
+
+        return True
+
+    except (requests.RequestException, ValueError) as exc:
         logging.error("Telegram error: %s", exc)
+        if getattr(exc, "response", None) is not None:
+            logging.error(
+                "Telegram response body: %s",
+                exc.response.text[:500]
+            )
         return False
 
 
@@ -192,24 +206,27 @@ def fetch_candles(symbol, interval):
 
             if response.status_code == 429:
                 retry_after = get_retry_after(response)
-
-                logging.warning(
-                    "Twelve Data returned HTTP 429 for %s %s. "
-                    "Retry-After: %s seconds",
-                    symbol,
-                    interval,
-                    retry_after
-                )
-
-                if attempt < 1 and retry_after <= 180:
-                    time.sleep(retry_after)
-                    continue
-
                 API_RATE_LIMITED = True
 
+                # A 429 can mean a per-minute limit or exhausted plan credits.
+                # Stop this run instead of repeating requests and worsening the limit.
+                try:
+                    error_detail = response.text[:500]
+                except Exception:
+                    error_detail = "No response details available."
+
+                logging.error(
+                    "Twelve Data HTTP 429 for %s %s. "
+                    "Retry-After: %s seconds. API response: %s",
+                    symbol,
+                    interval,
+                    retry_after,
+                    error_detail
+                )
+
                 raise RuntimeError(
-                    "Twelve Data HTTP 429 rate limit reached. "
-                    "Remaining scan paused."
+                    "Twelve Data HTTP 429 rate limit/quota reached. "
+                    "Remaining scan paused; check API usage and plan limits."
                 )
 
             response.raise_for_status()
