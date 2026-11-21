@@ -94,6 +94,17 @@ def discord(message):
 
     except requests.RequestException as exc:
         logging.error("Discord error: %s", exc)
+
+        if exc.response is not None:
+            logging.error(
+                "Discord response status: %s",
+                exc.response.status_code
+            )
+            logging.error(
+                "Discord response body: %s",
+                exc.response.text
+            )
+
         return False
 
 
