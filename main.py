@@ -35,12 +35,62 @@ MIN_CANDLES = 100
 HISTORY_FILE = "signal_history.csv"
 API_URL = "https://api.twelvedata.com/time_series"
 
+# Twelve Data request protection
+API_MIN_INTERVAL = 8.5
+LAST_API_REQUEST = 0.0
+API_RATE_LIMITED = False
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
 session = requests.Session()
+
+
+def wait_for_api_slot():
+    global LAST_API_REQUEST
+
+    elapsed = time.monotonic() - LAST_API_REQUEST
+    remaining = API_MIN_INTERVAL - elapsed
+
+    if remaining > 0:
+        logging.info(
+            "Twelve Data request spacing: waiting %.1f seconds",
+            remaining
+        )
+        time.sleep(remaining)
+
+    LAST_API_REQUEST = time.monotonic()
+
+
+def is_rate_limit_message(message):
+    message = str(message).lower()
+
+    keywords = [
+        "rate limit",
+        "too many requests",
+        "api credits",
+        "credits exhausted",
+        "quota",
+        "limit exceeded",
+        "thank you for using twelve data",
+        " plan ",
+    ]
+
+    return any(keyword in message for keyword in keywords)
+
+
+def get_retry_after(response):
+    value = response.headers.get("Retry-After", "").strip()
+
+    if not value:
+        return 60
+
+    try:
+        return max(1, int(float(value)))
+    except (TypeError, ValueError):
+        return 60
 
 
 def telegram(message):
@@ -109,8 +159,15 @@ def discord(message):
 
 
 def fetch_candles(symbol, interval):
+    global API_RATE_LIMITED
+
     if not API_KEY:
         raise RuntimeError("Twelve Data API key is missing.")
+
+    if API_RATE_LIMITED:
+        raise RuntimeError(
+            "Twelve Data rate limit reached. Scan paused."
+        )
 
     params = {
         "symbol": symbol,
@@ -125,16 +182,54 @@ def fetch_candles(symbol, interval):
 
     for attempt in range(3):
         try:
+            wait_for_api_slot()
+
             response = session.get(
-                API_URL, params=params, timeout=30
+                API_URL,
+                params=params,
+                timeout=30
             )
+
+            if response.status_code == 429:
+                retry_after = get_retry_after(response)
+
+                logging.warning(
+                    "Twelve Data returned HTTP 429 for %s %s. "
+                    "Retry-After: %s seconds",
+                    symbol,
+                    interval,
+                    retry_after
+                )
+
+                if attempt < 1 and retry_after <= 180:
+                    time.sleep(retry_after)
+                    continue
+
+                API_RATE_LIMITED = True
+
+                raise RuntimeError(
+                    "Twelve Data HTTP 429 rate limit reached. "
+                    "Remaining scan paused."
+                )
+
             response.raise_for_status()
             payload = response.json()
 
             if "values" not in payload:
-                raise RuntimeError(
-                    str(payload.get("message", payload))
+                message = payload.get(
+                    "message",
+                    payload.get("code", str(payload))
                 )
+
+                if is_rate_limit_message(message):
+                    API_RATE_LIMITED = True
+
+                    raise RuntimeError(
+                        "Twelve Data quota/rate limit reached: "
+                        + str(message)
+                    )
+
+                raise RuntimeError(str(message))
 
             df = pd.DataFrame(payload["values"])
 
@@ -174,15 +269,38 @@ def fetch_candles(symbol, interval):
 
             return df.reset_index(drop=True)
 
+        except RuntimeError:
+            raise
+
         except (
             requests.RequestException,
-            RuntimeError,
             ValueError
         ) as exc:
             last_error = exc
 
+            if isinstance(exc, requests.HTTPError):
+                if (
+                    exc.response is not None
+                    and exc.response.status_code == 429
+                ):
+                    API_RATE_LIMITED = True
+                    raise RuntimeError(
+                        "Twelve Data HTTP 429 rate limit reached."
+                    )
+
             if attempt < 2:
-                time.sleep(4 * (attempt + 1))
+                wait_seconds = 5 * (attempt + 1)
+
+                logging.warning(
+                    "API request failed for %s %s. "
+                    "Retrying in %s seconds: %s",
+                    symbol,
+                    interval,
+                    wait_seconds,
+                    exc
+                )
+
+                time.sleep(wait_seconds)
 
     raise RuntimeError(
         f"Could not fetch {symbol}: {last_error}"
@@ -596,7 +714,13 @@ def main():
     )
 
     for symbol in SYMBOLS:
+        if API_RATE_LIMITED:
+            break
+
         for timeframe, (interval, _) in TIMEFRAMES.items():
+
+            if API_RATE_LIMITED:
+                break
 
             try:
                 result = analyze(
@@ -635,7 +759,20 @@ def main():
                     symbol, timeframe
                 )
 
+                if API_RATE_LIMITED:
+                    logging.warning(
+                        "Stopping remaining market scan "
+                        "because Twelve Data rate limit was reached."
+                    )
+                    break
+
             time.sleep(2)
+
+    if API_RATE_LIMITED:
+        logging.warning(
+            "Scan ended early because the Twelve Data API limit "
+            "was reached."
+        )
 
     try:
         history.to_csv(HISTORY_FILE, index=False)
