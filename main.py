@@ -1,4 +1,3 @@
-
 import os
 import time
 import logging
@@ -336,14 +335,65 @@ def analyze(symbol, timeframe, interval):
 
     price = float(row["close"])
     atr = float(row["atr"])
+    ema9 = float(row["ema9"])
+    ema21 = float(row["ema21"])
+    ema50 = float(row["ema50"])
+    rsi = float(row["rsi"])
+    macd = float(row["macd"])
+    macd_signal = float(row["macd_signal"])
+    macd_hist = float(row["macd_hist"])
+    adx = float(row["adx"])
+    plus_di = float(row["plus_di"])
+    minus_di = float(row["minus_di"])
+
+    values = [
+        price, atr, ema9, ema21, ema50,
+        rsi, macd, macd_signal, macd_hist,
+        adx, plus_di, minus_di
+    ]
+
+    if not all(np.isfinite(v) for v in values):
+        raise RuntimeError("Invalid indicator data.")
+
+    if price <= 0 or atr <= 0:
+        raise RuntimeError("Invalid market data.")
+
+    bull_score = sum([
+        ema9 > ema21 > ema50,
+        price > ema21,
+        50 < rsi < 68,
+        macd > macd_signal,
+        macd_hist > 0,
+        plus_di > minus_di,
+    ])
+
+    bear_score = sum([
+        ema9 < ema21 < ema50,
+        price < ema21,
+        32 < rsi < 50,
+        macd < macd_signal,
+        macd_hist < 0,
+        minus_di > plus_di,
+    ])
+
+    signal = "NEUTRAL"
+    direction = "NEUTRAL"
 
     if (
-        not np.isfinite(price)
-        or not np.isfinite(atr)
-        or price <= 0
-        or atr <= 0
+        adx >= 18
+        and bull_score >= 4
+        and bull_score - bear_score >= 2
     ):
-        raise RuntimeError("Invalid market data.")
+        signal = "BUY"
+        direction = "BULLISH"
+
+    elif (
+        adx >= 18
+        and bear_score >= 4
+        and bear_score - bull_score >= 2
+    ):
+        signal = "SELL"
+        direction = "BEARISH"
 
     candle_time = row["datetime"].strftime(
         "%Y-%m-%d %H:%M UTC"
@@ -352,20 +402,22 @@ def analyze(symbol, timeframe, interval):
     return {
         "symbol": symbol,
         "timeframe": timeframe,
-        "signal": "OBSERVATION",
-        "direction": "NEUTRAL",
+        "signal": signal,
+        "direction": direction,
+        "bull_score": int(bull_score),
+        "bear_score": int(bear_score),
         "price": price,
-        "ema9": float(row["ema9"]),
-        "ema21": float(row["ema21"]),
-        "ema50": float(row["ema50"]),
-        "rsi": float(row["rsi"]),
-        "macd": float(row["macd"]),
-        "macd_signal": float(row["macd_signal"]),
-        "macd_hist": float(row["macd_hist"]),
-        "adx": float(row["adx"]),
+        "ema9": ema9,
+        "ema21": ema21,
+        "ema50": ema50,
+        "rsi": rsi,
+        "macd": macd,
+        "macd_signal": macd_signal,
+        "macd_hist": macd_hist,
+        "adx": adx,
         "atr": atr,
-        "plus_di": float(row["plus_di"]),
-        "minus_di": float(row["minus_di"]),
+        "plus_di": plus_di,
+        "minus_di": minus_di,
         "support": float(row["support"]),
         "resistance": float(row["resistance"]),
         "candle_time": candle_time,
@@ -414,8 +466,10 @@ def save_new_record(result, history):
         "symbol": result["symbol"],
         "timeframe": result["timeframe"],
         "signal_time": result["signal_time"],
-        "signal": "OBSERVATION",
-        "direction": "NEUTRAL",
+        "signal": result["signal"],
+        "direction": result["direction"],
+        "bull_score": result["bull_score"],
+        "bear_score": result["bear_score"],
         "price": result["price"],
         "rsi": result["rsi"],
         "adx": result["adx"],
@@ -449,11 +503,21 @@ def save_new_record(result, history):
 
 
 def format_report(r):
+    if r["signal"] == "BUY":
+        signal_display = "BUY ▲"
+    elif r["signal"] == "SELL":
+        signal_display = "SELL ▼"
+    else:
+        signal_display = "NEUTRAL"
+
     return (
         "<b>Punjab Market Scanner</b>\n\n"
         f"Market: <b>{r['symbol']}</b>\n"
-        f"Timeframe: <b>{r['timeframe']}</b>\n"
-        f"Observation: <b>Educational data</b>\n\n"
+        f"Timeframe: <b>{r['timeframe']}</b>\n\n"
+        f"Signal: <b>{signal_display}</b>\n"
+        f"Direction: <b>{r['direction']}</b>\n"
+        f"Bull Score: {r['bull_score']}/6\n"
+        f"Bear Score: {r['bear_score']}/6\n\n"
         f"Last completed candle: <code>{r['price']:.6f}</code>\n"
         f"EMA 9: {r['ema9']:.6f}\n"
         f"EMA 21: {r['ema21']:.6f}\n"
