@@ -30,13 +30,13 @@ TIMEFRAMES = {
     "H1": ("1h", 60),
 }
 
-OUTPUT_SIZE = 150
+OUTPUT_SIZE = 100
 MIN_CANDLES = 100
 HISTORY_FILE = "signal_history.csv"
 API_URL = "https://api.twelvedata.com/time_series"
 
 # Twelve Data request protection
-API_MIN_INTERVAL = 15.5
+API_MIN_INTERVAL = 20.0
 LAST_API_REQUEST = 0.0
 API_RATE_LIMITED = False
 
@@ -75,7 +75,6 @@ def is_rate_limit_message(message):
         "quota",
         "limit exceeded",
         "thank you for using twelve data",
-        " plan ",
     ]
 
     return any(keyword in message for keyword in keywords)
