@@ -927,9 +927,18 @@ def mtf_decision(result, same_market):
     m30 = by_timeframe.get("M30")
     h1_aligned = h1 is not None and h1["direction"] == direction
     m30_aligned = m30 is not None and m30["direction"] == direction
+    def has_strong_adx(item):
+        try:
+            value = float(item.get("adx"))
+        except (TypeError, ValueError, OverflowError):
+            return False
+        return bool(np.isfinite(value) and value >= 20)
+
+    # Missing, malformed, or non-finite ADX data must fail closed rather
+    # than crash the entire scan or accidentally qualify an MTF cohort.
     anchors_strong = (
         h1 is not None and m30 is not None
-        and float(h1["adx"]) >= 20 and float(m30["adx"]) >= 20
+        and has_strong_adx(h1) and has_strong_adx(m30)
     )
 
     # Every production result carries its candle-open timestamp and the
