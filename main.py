@@ -764,6 +764,7 @@ def main():
     discord_sent = 0
     errors = 0
     pending_notifications = []
+    scan_results = []
 
     telegram(
         "<b>Punjab Market Scanner Started</b>\n"
@@ -785,6 +786,7 @@ def main():
                 )
 
                 checked += 1
+                scan_results.append(result)
 
                 history, is_new = save_new_record(
                     result, history
@@ -831,15 +833,16 @@ def main():
     # for the same market. This is descriptive confirmation, not a forecast.
     for result in pending_notifications:
         same_market = [
-            item for item in pending_notifications
+            item for item in scan_results
             if item["symbol"] == result["symbol"]
         ]
         same_direction = sum(
             item["signal"] == result["signal"]
             for item in same_market
         )
+        scanned_count = len(same_market)
         mtf_text = (
-            f"{same_direction}/{len(TIMEFRAMES)} scanned timeframes "
+            f"{same_direction}/{scanned_count} scanned timeframes "
             f"show {('bullish' if result['signal'] == 'BULLISH' else 'bearish')} bias"
         )
 
