@@ -833,11 +833,19 @@ def evaluate_past_signals(current, history, horizon_bars=3):
     return history, updated, correct
 
 
+def canonical_utc_timestamp(value):
+    """Normalize equivalent timestamp strings to one UTC ISO representation."""
+    timestamp = pd.to_datetime(value, utc=True, errors="coerce")
+    if pd.isna(timestamp):
+        return None
+    return timestamp.isoformat()
+
+
 def save_new_record(result, history):
     key = (
         result["symbol"],
         result["timeframe"],
-        result["signal_time"],
+        canonical_utc_timestamp(result["signal_time"]),
     )
 
     if not history.empty:
@@ -845,10 +853,11 @@ def save_new_record(result, history):
             if col not in history.columns:
                 history[col] = ""
 
+        history_times = history["signal_time"].map(canonical_utc_timestamp)
         duplicate = (
             (history["symbol"].astype(str) == key[0])
             & (history["timeframe"].astype(str) == key[1])
-            & (history["signal_time"].astype(str) == key[2])
+            & (history_times == key[2])
         ).any()
 
         if duplicate:
@@ -1035,10 +1044,12 @@ def label_mtf_cohorts(scan_results, history):
             continue
         same_market = [x for x in scan_results if x["symbol"] == result["symbol"]]
         decision = mtf_decision(result, same_market)
+        history_times = history["signal_time"].map(canonical_utc_timestamp)
+        result_time = canonical_utc_timestamp(result["signal_time"])
         mask = (
             (history["symbol"].astype(str) == str(result["symbol"]))
             & (history["timeframe"].astype(str) == str(result["timeframe"]))
-            & (history["signal_time"].astype(str) == str(result["signal_time"]))
+            & (history_times == result_time)
             & (history["mtf_cohort"].astype(str) == "UNASSESSED")
         )
         values = {
@@ -1068,11 +1079,89 @@ def exact_verified_history(history):
     )
     exact = history[valid].copy()
     keys = ["symbol", "timeframe", "signal_time"]
-    missing_key = exact[keys].isna().any(axis=1) | exact[keys].apply(
-        lambda column: column.astype(str).str.strip().eq("")
-    ).any(axis=1)
-    duplicate_key = exact.duplicated(subset=keys, keep=False)
+    normalized_keys = exact[keys].copy()
+    normalized_keys["signal_time"] = normalized_keys["signal_time"].map(
+        canonical_utc_timestamp
+    )
+    missing_key = (
+        normalized_keys.isna().any(axis=1)
+        | normalized_keys["symbol"].astype(str).str.strip().eq("")
+        | normalized_keys["timeframe"].astype(str).str.strip().eq("")
+    )
+    duplicate_key = normalized_keys.duplicated(keep=False)
     return exact[~(missing_key | duplicate_key)].copy()
+
+
+def mtf_cohort_evidence_summary(history, minimum_directional_samples=30):
+    """Report cohort hit rates with Wilson intervals and an evidence-size warning."""
+    valid = exact_verified_history(history)
+    lines = []
+    stats = {}
+
+    for cohort in ("PASSED", "BLOCKED"):
+        group = valid[valid.get("mtf_cohort", pd.Series(index=valid.index, dtype=str))
+                      .fillna("").astype(str) == cohort]
+        statuses = group["outcome_status"].fillna("").astype(str).str.upper()
+        correct = int((statuses == "CORRECT").sum())
+        incorrect = int((statuses == "INCORRECT").sum())
+        flat = int((statuses == "FLAT").sum())
+        decisive = correct + incorrect
+        rate = correct / decisive if decisive else None
+
+        # Wilson score interval avoids misleading normal intervals at small n.
+        if decisive:
+            z = 1.959963984540054
+            denominator = 1 + z * z / decisive
+            center = (rate + z * z / (2 * decisive)) / denominator
+            margin = (
+                z * np.sqrt(
+                    rate * (1 - rate) / decisive
+                    + z * z / (4 * decisive * decisive)
+                ) / denominator
+            )
+            low = max(0.0, center - margin) * 100
+            high = min(1.0, center + margin) * 100
+            interval = f"{low:.1f}%–{high:.1f}%"
+            rate_text = f"{rate * 100:.1f}%"
+        else:
+            interval = "not available"
+            rate_text = "not available"
+
+        evidence = (
+            "minimum sample reached"
+            if decisive >= minimum_directional_samples
+            else f"insufficient evidence (<{minimum_directional_samples} directional samples)"
+        )
+        lines.append(
+            f"{cohort}: {len(group)} matured; {correct} correct / "
+            f"{incorrect} incorrect / {flat} flat; directional hit rate "
+            f"{rate_text}; 95% Wilson CI {interval}; {evidence}"
+        )
+        stats[cohort] = {
+            "matured": len(group), "correct": correct,
+            "incorrect": incorrect, "flat": flat,
+            "directional_samples": decisive, "hit_rate": rate,
+            "ci95_low": low if decisive else None,
+            "ci95_high": high if decisive else None,
+        }
+
+    enough = all(
+        stats[cohort]["directional_samples"] >= minimum_directional_samples
+        for cohort in ("PASSED", "BLOCKED")
+    )
+    if enough:
+        comparison = (
+            "PASSED vs BLOCKED: both groups meet the minimum sample size; "
+            "compare rates and confidence intervals cautiously. This is "
+            "observational evidence, not proof that the filter causes better results."
+        )
+    else:
+        comparison = (
+            "PASSED vs BLOCKED comparison: not ready; each group needs at least "
+            f"{minimum_directional_samples} matured directional observations."
+        )
+    lines.append(comparison)
+    return lines, stats
 
 
 def mtf_accuracy_summary(history):
@@ -1453,9 +1542,11 @@ def main():
     market_lines = "\n".join(market_accuracy) if market_accuracy else "Not available yet"
     timeframe_lines = "\n".join(timeframe_accuracy) if timeframe_accuracy else "Not available yet"
     mtf_accuracy = mtf_accuracy_summary(history)
+    mtf_evidence_lines, mtf_evidence_stats = mtf_cohort_evidence_summary(history)
     integrity = accuracy_integrity_summary(history)
     integrity_warning_text = "; ".join(integrity["warnings"]) if integrity["warnings"] else "All totals reconcile; no duplicate keys detected"
     mtf_accuracy_text = "\n".join(mtf_accuracy.values())
+    mtf_evidence_text = "\n".join(mtf_evidence_lines)
     # Diagnostics must use the full scan (including neutral frames), not only new alerts.
     mtf_diagnostics = mtf_diagnostic_summary(scan_results)
     mtf_reason_text = (
@@ -1486,8 +1577,8 @@ def main():
         f"MTF blocked: {mtf_blocked} | incomplete: {mtf_incomplete}\n"
         f"MTF candidates: {mtf_diagnostics['candidates']} | passed: {mtf_diagnostics['passed']} | blocked: {mtf_diagnostics['blocked']} | incomplete: {mtf_diagnostics['incomplete']}\n"
         f"MTF block reasons: {mtf_reason_text}\n\n"
-        "<b>MTF Cohort Accuracy (exact 3-candle; legacy rows excluded)</b>\n"
-        f"{mtf_accuracy_text}\n\n"
+        "<b>MTF Cohort Evidence (exact 3-candle; legacy rows excluded)</b>\n"
+        f"{mtf_evidence_text}\n\n"
         "<b>Verified Exact 3-Candle Directional Accuracy</b>\n"
         f"Completed observations: {accuracy['completed']}\n"
         f"Correct: {accuracy['correct']}\n"
