@@ -50,6 +50,46 @@ class CompletedCandleCutoffTests(unittest.TestCase):
             )
 
 
+class MTFFreshnessTests(unittest.TestCase):
+    def cohort(self, cutoff="2026-11-22T10:00:00Z"):
+        candles = {
+            "M5": "2026-11-22T09:55:00Z",
+            "M15": "2026-11-22T09:45:00Z",
+            "M30": "2026-11-22T09:30:00Z",
+            "H1": "2026-11-22T09:00:00Z",
+        }
+        results = []
+        for timeframe, candle_time in candles.items():
+            row = item(timeframe, "BULLISH")
+            row["signal_time"] = candle_time
+            row["scan_cutoff"] = cutoff
+            results.append(row)
+        return results
+
+    def test_recent_closed_candles_can_pass(self):
+        results = self.cohort()
+        decision = main.mtf_decision(results[0], results)
+        self.assertTrue(decision["passed"])
+        self.assertEqual(decision["stale_timeframes"], [])
+
+    def test_old_candle_blocks_cohort_as_incomplete(self):
+        results = self.cohort()
+        results[3]["signal_time"] = "2026-11-22T08:00:00Z"
+        decision = main.mtf_decision(results[0], results)
+        self.assertFalse(decision["passed"])
+        self.assertEqual(decision["cohort"], "INCOMPLETE")
+        self.assertEqual(decision["reason"], "STALE_OR_MISSING_CANDLE_TIMING")
+        self.assertEqual(decision["stale_timeframes"], ["H1"])
+
+    def test_missing_timing_metadata_fails_closed(self):
+        results = self.cohort()
+        del results[1]["scan_cutoff"]
+        decision = main.mtf_decision(results[0], results)
+        self.assertFalse(decision["passed"])
+        self.assertEqual(decision["cohort"], "INCOMPLETE")
+        self.assertIn("M15", decision["stale_timeframes"])
+
+
 class MTFTests(unittest.TestCase):
     def test_incomplete_timeframes_are_blocked(self):
         results = [item("M5", "BULLISH"), item("M15", "BULLISH"),
