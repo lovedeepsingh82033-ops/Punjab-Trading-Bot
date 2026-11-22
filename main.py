@@ -671,6 +671,9 @@ def analyze(symbol, timeframe, interval):
         "candle_time": candle_time,
         "signal_time": row["datetime"].isoformat(),
         "backtest": backtest,
+        # In-memory candle series for exact-horizon history evaluation.
+        # save_new_record writes explicit fields only, so this is not persisted.
+        "_candles": df[["datetime", "close"]].copy(),
     }
 
 
@@ -692,13 +695,11 @@ def load_history():
 
 
 def evaluate_past_signals(current, history, horizon_bars=3):
-    """Close old observations after a fixed number of completed candles."""
+    """Evaluate observations at exactly the Nth subsequent completed candle."""
     if history.empty:
         return history, 0, 0
 
-    required = [
-        "symbol", "timeframe", "signal", "signal_time", "price"
-    ]
+    required = ["symbol", "timeframe", "signal", "signal_time", "price"]
     if any(col not in history.columns for col in required):
         return history, 0, 0
 
@@ -706,31 +707,42 @@ def evaluate_past_signals(current, history, horizon_bars=3):
         ("outcome_status", "PENDING"),
         ("outcome_pct", np.nan),
         ("evaluated_at", ""),
+        ("outcome_method", ""),
     ]:
         if col not in history.columns:
             history[col] = default
 
-    timeframe_minutes = TIMEFRAMES[current["timeframe"]][1]
-    now_candle = pd.to_datetime(current["signal_time"], utc=True)
-    updated = 0
+    direction_values = history.get("direction", history["signal"])
+    directions = direction_values.fillna("").astype(str).str.upper()
+    fallback = history["signal"].fillna("").astype(str).str.upper()
+    directions = directions.where(directions != "", fallback)
+    directions = directions.replace({
+        "BUY": "BULLISH",
+        "BUY ANALYSIS": "BULLISH",
+        "SELL": "BEARISH",
+        "SELL ANALYSIS": "BEARISH",
+    })
 
     mask = (
         (history["symbol"].astype(str) == current["symbol"])
         & (history["timeframe"].astype(str) == current["timeframe"])
-        & (
-            history.get(
-                "direction",
-                history["signal"]
-            ).fillna("").astype(str).str.upper().replace({
-                "BUY": "BULLISH",
-                "BUY ANALYSIS": "BULLISH",
-                "SELL": "BEARISH",
-                "SELL ANALYSIS": "BEARISH",
-            }).isin(["BULLISH", "BEARISH"])
-        )
-        & (history["outcome_status"].astype(str).str.upper() == "PENDING")
+        & directions.isin(["BULLISH", "BEARISH"])
+        & (history["outcome_status"].fillna("PENDING").astype(str).str.upper() == "PENDING")
     )
 
+    candles = current.get("_candles")
+    if candles is None or candles.empty:
+        return history, 0, 0
+
+    candle_times = pd.to_datetime(candles["datetime"], utc=True, errors="coerce")
+    candle_closes = pd.to_numeric(candles["close"], errors="coerce")
+    positions = {
+        timestamp: position
+        for position, timestamp in enumerate(candle_times)
+        if not pd.isna(timestamp)
+    }
+
+    updated = 0
     for idx in history.index[mask]:
         signal_time = pd.to_datetime(
             history.at[idx, "signal_time"], utc=True, errors="coerce"
@@ -738,28 +750,20 @@ def evaluate_past_signals(current, history, horizon_bars=3):
         if pd.isna(signal_time):
             continue
 
-        elapsed_minutes = (now_candle - signal_time).total_seconds() / 60
-        elapsed_bars = int(elapsed_minutes // timeframe_minutes)
+        signal_position = positions.get(signal_time)
+        if signal_position is None:
+            continue
 
-        if elapsed_bars < horizon_bars:
+        target_position = signal_position + horizon_bars
+        if target_position >= len(candles):
             continue
 
         entry = float(history.at[idx, "price"])
-        exit_price = float(current["price"])
-        if not np.isfinite(entry) or entry <= 0:
+        exit_price = float(candle_closes.iloc[target_position])
+        if not np.isfinite(entry) or entry <= 0 or not np.isfinite(exit_price):
             continue
 
-        direction_value = (
-            history.at[idx, "direction"]
-            if "direction" in history.columns
-            else history.at[idx, "signal"]
-        )
-        direction = str(direction_value).upper()
-        if direction in ("BUY", "BUY ANALYSIS"):
-            direction = "BULLISH"
-        elif direction in ("SELL", "SELL ANALYSIS"):
-            direction = "BEARISH"
-
+        direction = directions.at[idx]
         raw_change = (exit_price - entry) / entry * 100
         directional_change = raw_change if direction == "BULLISH" else -raw_change
 
@@ -770,18 +774,22 @@ def evaluate_past_signals(current, history, horizon_bars=3):
         else:
             status = "FLAT"
 
+        target_time = candle_times.iloc[target_position]
         history.at[idx, "outcome_status"] = status
         history.at[idx, "outcome_pct"] = round(directional_change, 6)
-        history.at[idx, "evaluated_at"] = now_candle.isoformat()
+        history.at[idx, "evaluated_at"] = target_time.isoformat()
+        history.at[idx, "outcome_method"] = "EXACT_3_CANDLE"
         updated += 1
 
     completed = history[
-        history["outcome_status"].astype(str).isin(
+        (history["outcome_method"].astype(str) == "EXACT_3_CANDLE")
+        & history["outcome_status"].astype(str).str.upper().isin(
             ["CORRECT", "INCORRECT", "FLAT"]
         )
     ]
-    correct = int((completed["outcome_status"] == "CORRECT").sum())
+    correct = int((completed["outcome_status"].astype(str).str.upper() == "CORRECT").sum())
     return history, updated, correct
+
 
 def save_new_record(result, history):
     key = (
@@ -851,6 +859,12 @@ def accuracy_summary(history):
         return {"completed": 0, "correct": 0, "incorrect": 0,
                 "flat": 0, "win_rate": None}
 
+    # Report only consistently measured exact three-candle outcomes.
+    if "outcome_method" not in history.columns:
+        history = history.iloc[0:0]
+    else:
+        history = history[history["outcome_method"].astype(str) == "EXACT_3_CANDLE"]
+
     statuses = history["outcome_status"].fillna("").astype(str).str.upper()
     correct = int((statuses == "CORRECT").sum())
     incorrect = int((statuses == "INCORRECT").sum())
@@ -875,8 +889,12 @@ def accuracy_breakdown(history, group_col):
     ):
         return []
 
+    if "outcome_method" not in history.columns:
+        return []
+
     completed = history[
-        history["outcome_status"].fillna("").astype(str).str.upper().isin(
+        (history["outcome_method"].astype(str) == "EXACT_3_CANDLE")
+        & history["outcome_status"].fillna("").astype(str).str.upper().isin(
             ["CORRECT", "INCORRECT", "FLAT"]
         )
     ]
@@ -1134,7 +1152,7 @@ def main():
         f"Discord updates sent: {discord_sent}\n"
         f"Data/processing issues: {errors}\n"
         f"Past observations evaluated this scan: {outcomes_evaluated}\n\n"
-        "<b>Overall Historical Directional Accuracy</b>\n"
+        "<b>Verified Exact 3-Candle Directional Accuracy</b>\n"
         f"Completed observations: {accuracy['completed']}\n"
         f"Correct: {accuracy['correct']}\n"
         f"Incorrect: {accuracy['incorrect']}\n"
@@ -1146,9 +1164,11 @@ def main():
         f"{timeframe_lines}\n\n"
         "<b>Historical Rule Test (exact 3-candle horizon)</b>\n"
         f"{backtest_text}\n\n"
-        "<i>Hit rate = correct / (correct + incorrect); "
-        "flat outcomes are excluded. Historical observations are not "
-        "verified profitable trades. No orders were placed.</i>"
+        "<i>Accuracy includes only observations evaluated at exactly "
+        "the third subsequent completed candle. Older variable-horizon "
+        "results are excluded. Flat outcomes are excluded from hit rate. "
+        "This is historical direction testing, not verified profitability. "
+        "No orders were placed.</i>"
     )
 
     telegram(summary)
@@ -1175,8 +1195,9 @@ def main():
         f"{timeframe_lines}\n\n"
         "**Historical Rule Test (exact 3-candle horizon)**\n"
         f"{backtest_text}\n\n"
-        "*Hit rate excludes flat outcomes. Historical observations are not "
-        "verified profitable trades. No orders were placed.*"
+        "*Accuracy includes only exact third-candle evaluations. Older "
+        "variable-horizon results are excluded. Hit rate excludes flats. "
+        "This is not verified profitability. No orders were placed.*"
     )
 
 
