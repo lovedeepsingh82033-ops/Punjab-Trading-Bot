@@ -93,21 +93,26 @@ def get_retry_after(response):
         return 60
 
 
-def telegram(message):
+def telegram(message, reply_markup=None):
     if not TOKEN or not CHAT_ID:
         logging.warning("Telegram secrets are missing.")
         return False
 
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": message,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
 
     try:
         response = session.post(
             url,
             data={
-                "chat_id": CHAT_ID,
-                "text": message,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
+                **payload,
             },
             timeout=25,
         )
@@ -669,36 +674,33 @@ def save_new_record(result, history):
 def format_report(r):
     if r["signal"] == "BULLISH":
         signal_display = "BUY 🟢"
+        signal_icon = "🟢"
     elif r["signal"] == "BEARISH":
         signal_display = "SELL 🔴"
+        signal_icon = "🔴"
     else:
         return None
 
     return (
-        "<b>Punjab Market Scanner</b>\n\n"
-        f"Market: <b>{r['symbol']}</b>\n"
-        f"Timeframe: <b>{r['timeframe']}</b>\n\n"
-        f"Market bias: <b>{signal_display}</b>\n"
-        f"Bull Score: {r['bull_score']}/6\n"
-        f"Bear Score: {r['bear_score']}/6\n\n"
-        f"Last completed candle: <code>{r['price']:.6f}</code>\n"
-        f"EMA 9: {r['ema9']:.6f}\n"
-        f"EMA 21: {r['ema21']:.6f}\n"
-        f"EMA 50: {r['ema50']:.6f}\n"
-        f"RSI 14: {r['rsi']:.2f}\n"
-        f"MACD: {r['macd']:.6f}\n"
-        f"MACD Signal: {r['macd_signal']:.6f}\n"
-        f"MACD Histogram: {r['macd_hist']:.6f}\n"
-        f"ADX 14: {r['adx']:.2f}\n"
-        f"ATR 14: {r['atr']:.6f}\n"
-        f"Support reference: <code>{r['support']:.6f}</code>\n"
-        f"Resistance reference: <code>{r['resistance']:.6f}</code>\n\n"
-        f"Candle time: {r['candle_time']}\n\n"
-        "<i>Educational market data only. "
+        "━━━━━━━━━━━━━━━━━━\n"
+        "🤖 <b>PUNJAB MARKET SCANNER</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        f"📊 <b>{r['symbol']}</b>\n"
+        f"⏱ <b>{r['timeframe']}</b> timeframe\n"
+        f"{signal_icon} <b>{signal_display}</b>\n\n"
+        "📈 <b>ANALYSIS DETAILS</b>\n"
+        f"🟢 Bull score: <b>{r['bull_score']}/6</b>\n"
+        f"🔴 Bear score: <b>{r['bear_score']}/6</b>\n"
+        f"💰 Last completed price: <code>{r['price']:.6f}</code>\n"
+        f"📉 RSI (14): <b>{r['rsi']:.2f}</b>\n"
+        f"📊 ADX (14): <b>{r['adx']:.2f}</b>\n"
+        f"〽️ MACD histogram: <code>{r['macd_hist']:.6f}</code>\n\n"
+        f"🕒 Candle: {r['candle_time']}\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "<i>Educational market observation only. "
         "Not a trading instruction or prediction. "
         "Indicators can be wrong. No orders are placed.</i>"
     )
-
 
 def format_discord_report(r):
     if r["signal"] == "BULLISH":
@@ -796,7 +798,15 @@ def main():
                     report = format_report(result)
 
                     if report is not None:
-                        if telegram(report):
+                        signal_keyboard = {
+                            "inline_keyboard": [[
+                                {
+                                    "text": "📂 View Punjab Scanner on GitHub",
+                                    "url": "https://github.com/lovedeepsingh82033-ops/Punjab-Trading-Bot"
+                                }
+                            ]]
+                        }
+                        if telegram(report, reply_markup=signal_keyboard):
                             telegram_sent += 1
 
                         discord_report = format_discord_report(result)
