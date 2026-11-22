@@ -1102,7 +1102,7 @@ def main():
         f'median {x["median_move_pct"]:+.4f}%'
         for x in tested
     ]
-    backtest_text = "\\n".join(backtest_lines) if backtest_lines else "Not enough historical samples yet"
+    backtest_text = "\n".join(backtest_lines) if backtest_lines else "Not enough historical samples yet"
 
     summary = (
         "<b>Punjab Scan Complete</b>\n\n"
@@ -1154,7 +1154,7 @@ def main():
         "**Accuracy by Timeframe**\n"
         f"{timeframe_lines}\n\n"
         "**Historical Rule Test (exact 3-candle horizon)**\n"
-        f"{backtest_text}\\n\\n"
+        f"{backtest_text}\n\n"
         "*Hit rate excludes flat outcomes. Historical observations are not "
         "verified profitable trades. No orders were placed.*"
     )
