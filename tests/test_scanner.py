@@ -21,6 +21,36 @@ def item(tf, direction, adx=25):
     }
 
 
+class HistoricalBacktestSamplingTests(unittest.TestCase):
+    def make_bullish_frame(self, count=100):
+        return pd.DataFrame({
+            "close": [100.0 + i for i in range(count)],
+            "ema9": [3.0] * count,
+            "ema21": [2.0] * count,
+            "ema50": [1.0] * count,
+            "rsi": [60.0] * count,
+            "macd": [2.0] * count,
+            "macd_signal": [1.0] * count,
+            "macd_hist": [1.0] * count,
+            "adx": [25.0] * count,
+            "plus_di": [30.0] * count,
+            "minus_di": [10.0] * count,
+        })
+
+    def test_outcome_windows_do_not_overlap(self):
+        result = main.historical_backtest(self.make_bullish_frame(), horizon_bars=3)
+        # The 30-row holdout yields ten disjoint three-bar outcome windows.
+        self.assertEqual(result["samples"], 10)
+        self.assertEqual(result["overlap_policy"], "NON_OVERLAPPING_HORIZON")
+        self.assertAlmostEqual(result["hit_rate"], 100.0)
+
+    def test_invalid_horizon_is_rejected(self):
+        for horizon in (0, -1, 1.5, True):
+            with self.subTest(horizon=horizon):
+                with self.assertRaises(ValueError):
+                    main.historical_backtest(self.make_bullish_frame(), horizon_bars=horizon)
+
+
 class CompletedCandleCutoffTests(unittest.TestCase):
     def test_shared_cutoff_excludes_candles_not_yet_closed(self):
         frame = pd.DataFrame({
