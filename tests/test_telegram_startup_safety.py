@@ -33,7 +33,7 @@ class TelegramStartupSafetyTests(unittest.TestCase):
 
         self.assertIsNone(offset)
         sleep.assert_called_once_with(5)
-        output = "\\n".join(captured.output)
+        output = "\n".join(captured.output)
         self.assertIn("ConnectionError", output)
         self.assertNotIn("sensitive-token", output)
         self.assertNotIn("api.telegram.org", output)
