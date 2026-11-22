@@ -1094,8 +1094,10 @@ def main():
             "was reached."
         )
 
-    # Compare each signal with the other timeframes already scanned
-    # for the same market. This is descriptive confirmation, not a forecast.
+    # Conservative multi-timeframe alert gate. H1 must agree and at
+    # least 2 of the 4 configured timeframes must share the direction.
+    # This reduces conflicting alerts; it does NOT establish profitability.
+    mtf_blocked = 0
     for result in pending_notifications:
         same_market = [
             item for item in scan_results
@@ -1106,11 +1108,32 @@ def main():
             for item in same_market
         )
         scanned_count = len(same_market)
-        mtf_text = (
-            f"{same_direction}/{scanned_count} scanned timeframes "
-            f"show {('bullish' if result['signal'] == 'BULLISH' else 'bearish')} bias"
+        h1_result = next(
+            (item for item in same_market if item["timeframe"] == "H1"),
+            None
+        )
+        h1_agrees = (
+            h1_result is not None
+            and h1_result["signal"] == result["signal"]
+        )
+        mtf_confirmed = (
+            scanned_count == len(TIMEFRAMES)
+            and same_direction >= 2
+            and h1_agrees
         )
 
+        if not mtf_confirmed:
+            mtf_blocked += 1
+            logging.info(
+                "MTF filter blocked %s %s %s (agreement=%s/%s, H1=%s)",
+                result["symbol"], result["timeframe"], result["signal"],
+                same_direction, scanned_count, h1_agrees
+            )
+            continue
+
+        mtf_text = (
+            f"CONFIRMED: {same_direction}/{scanned_count} timeframes; H1 aligned"
+        )
         report = format_report(result, mtf_text)
         if telegram(report):
             telegram_sent += 1
@@ -1118,6 +1141,8 @@ def main():
         discord_report = format_discord_report(result)
         if discord_report is not None and discord(discord_report):
             discord_sent += 1
+
+    logging.info("MTF filter blocked %s candidate alerts.", mtf_blocked)
 
     try:
         history.to_csv(HISTORY_FILE, index=False)
@@ -1167,7 +1192,7 @@ def main():
         f"{market_lines}\n\n"
         "<b>Accuracy by Timeframe</b>\n"
         f"{timeframe_lines}\n\n"
-        "<b>Out-of-Sample Holdout Test (final 30%; exact 3-candle horizon)</b>\n"
+        "<b>Base-rule Out-of-Sample Test (not MTF-filtered; final 30%, exact 3-candle horizon)</b>\n"
         f"{backtest_text}\n\n"
         "<i>Accuracy includes only observations evaluated at exactly "
         "the third subsequent completed candle. Older variable-horizon "
@@ -1198,7 +1223,7 @@ def main():
         f"{market_lines}\n\n"
         "**Accuracy by Timeframe**\n"
         f"{timeframe_lines}\n\n"
-        "**Out-of-Sample Holdout Test (final 30%; exact 3-candle horizon)**\n"
+        "**Base-rule Out-of-Sample Test (not MTF-filtered; final 30%, exact 3-candle horizon)**\n"
         f"{backtest_text}\n\n"
         "*Accuracy includes only exact third-candle evaluations. Older "
         "variable-horizon results are excluded. Hit rate excludes flats. "
