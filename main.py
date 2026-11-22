@@ -946,7 +946,7 @@ def mtf_decision(result, same_market):
                 raise ValueError("missing timing metadata")
             candle_close = candle_open + pd.Timedelta(minutes=minutes)
             age = cutoff - candle_close
-            if age < pd.Timedelta(0) or age > pd.Timedelta(minutes=minutes):
+            if age < pd.Timedelta(0) or age >= pd.Timedelta(minutes=minutes):
                 freshness_errors.append(timeframe)
         except (TypeError, ValueError, OverflowError):
             freshness_errors.append(timeframe)
