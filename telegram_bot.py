@@ -89,11 +89,17 @@ def handle_message(message):
 def main():
     logging.info("Telegram command bot started.")
 
-    updates = get_updates()
-    offset = max(
-        (item["update_id"] for item in updates),
-        default=0
-    ) + 1
+    try:
+        updates = get_updates()
+        offset = max(
+            (item["update_id"] for item in updates),
+            default=0
+        ) + 1
+    except requests.RequestException as exc:
+        # Do not let an initial connection failure print the token-bearing URL.
+        logging.error("Telegram startup connection failed: %s", type(exc).__name__)
+        offset = None
+        time.sleep(5)
 
     while True:
         try:
@@ -106,12 +112,12 @@ def main():
                 if message:
                     handle_message(message)
 
-        except requests.RequestException:
-            logging.exception("Telegram connection error.")
+        except requests.RequestException as exc:
+            logging.error("Telegram connection failed: %s", type(exc).__name__)
             time.sleep(5)
 
-        except Exception:
-            logging.exception("Unexpected bot error.")
+        except Exception as exc:
+            logging.error("Unexpected bot error: %s", type(exc).__name__)
             time.sleep(5)
 
 

@@ -119,8 +119,8 @@ def main():
                 if message:
                     handle_message(message)
 
-        except Exception:
-            logging.exception("Dashboard error")
+        except Exception as exc:
+            logging.error("Dashboard request failed: %s", type(exc).__name__)
             time.sleep(5)
 
 
