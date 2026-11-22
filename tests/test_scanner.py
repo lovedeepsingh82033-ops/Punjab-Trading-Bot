@@ -61,6 +61,14 @@ class MTFTests(unittest.TestCase):
         self.assertEqual(summary["candidates"], 3)
         self.assertEqual(summary["passed"], 3)
 
+    def test_mtf_diagnostics_uses_all_timeframes_not_only_alerts(self):
+        results = [item("M5", "BULLISH"), item("M15", "NEUTRAL"),
+                   item("M30", "BULLISH"), item("H1", "BULLISH")]
+        summary = main.mtf_diagnostic_summary(results)
+        self.assertEqual(summary["candidates"], 3)
+        self.assertEqual(summary["passed"], 3)
+        self.assertEqual(summary["incomplete"], 0)
+
     def test_accuracy_summary_excludes_unverified_legacy_rows(self):
         history = pd.DataFrame([
             {"symbol": "EUR/USD", "timeframe": "M5", "signal_time": "2026-11-22T10:00:00Z", "outcome_method": "EXACT_3_CANDLE", "outcome_status": "CORRECT"},
