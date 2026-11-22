@@ -6,7 +6,7 @@ from simulation import summarize_paper_returns
 class PaperSimulationMetricsTests(unittest.TestCase):
     def test_costs_can_turn_gross_wins_into_net_losses(self):
         result = summarize_paper_returns([0.10, 0.10, -0.05], 0.12, 3)
-        self.assertAlmostEqual(result["net_expectancy_pct"], -0.02)
+        self.assertAlmostEqual(result["net_expectancy_pct"], -0.07)
         self.assertEqual(result["win_rate_pct"], 0.0)
         self.assertEqual(result["evidence_status"], "SAMPLE THRESHOLD MET")
 
@@ -37,8 +37,8 @@ class PaperSimulationMetricsTests(unittest.TestCase):
 
     def test_profit_factor_uses_net_positive_and_negative_results(self):
         result = summarize_paper_returns([2.0, -1.0, 1.0], 0.5, 1)
-        self.assertAlmostEqual(result["profit_factor"], 2.0)
-        self.assertAlmostEqual(result["net_expectancy_pct"], 0.0)
+        self.assertAlmostEqual(result["profit_factor"], 4.0 / 3.0)
+        self.assertAlmostEqual(result["net_expectancy_pct"], 1.0 / 6.0)
 
 
 if __name__ == "__main__":
