@@ -57,5 +57,62 @@ class MTFTests(unittest.TestCase):
                 main.load_history()
 
 
+class AccuracyIntegrityTests(unittest.TestCase):
+    def make_history(self):
+        rows = []
+        statuses = (["CORRECT"] * 144) + (["INCORRECT"] * 167) + (["FLAT"] * 10)
+        markets = ["AUD/USD", "EUR/USD", "GBP/USD", "NZD/USD", "USD/CAD", "USD/JPY", "XAU/USD"]
+        timeframes = ["M5", "M15", "M30", "H1"]
+        for i, status in enumerate(statuses):
+            rows.append({
+                "symbol": markets[i % len(markets)],
+                "timeframe": timeframes[i % len(timeframes)],
+                "signal_time": f"2026-11-22T{i:04d}:00Z",
+                "outcome_method": "EXACT_3_CANDLE",
+                "outcome_status": status,
+            })
+        return pd.DataFrame(rows)
+
+    def test_report_counts_reconcile_for_321_observations(self):
+        history = self.make_history()
+        integrity = main.accuracy_integrity_summary(history)
+        accuracy = main.accuracy_summary(history)
+        self.assertEqual(integrity["status"], "OK")
+        self.assertEqual(integrity["completed"], 321)
+        self.assertEqual(integrity["correct"], 144)
+        self.assertEqual(integrity["incorrect"], 167)
+        self.assertEqual(integrity["flat"], 10)
+        self.assertEqual(integrity["market_rows"], 321)
+        self.assertEqual(integrity["timeframe_rows"], 321)
+        self.assertAlmostEqual(accuracy["win_rate"], 46.3)
+
+    def test_duplicate_signal_keys_raise_integrity_warning(self):
+        history = self.make_history()
+        history = pd.concat([history, history.iloc[[0]]], ignore_index=True)
+        integrity = main.accuracy_integrity_summary(history)
+        self.assertEqual(integrity["status"], "WARNING")
+        self.assertEqual(integrity["duplicate_keys"], 2)
+
+    def test_invalid_exact_outcome_is_reported_not_counted(self):
+        history = self.make_history()
+        history.loc[0, "outcome_status"] = "PENDING"
+        integrity = main.accuracy_integrity_summary(history)
+        self.assertEqual(integrity["completed"], 320)
+        self.assertEqual(integrity["invalid_exact_status"], 1)
+        self.assertEqual(integrity["status"], "WARNING")
+
+    def test_legacy_rows_are_not_in_exact_integrity_totals(self):
+        history = self.make_history()
+        legacy = history.iloc[[0]].copy()
+        legacy["outcome_method"] = "LEGACY"
+        legacy["outcome_status"] = "INCORRECT"
+        legacy["signal_time"] = "legacy-row"
+        history = pd.concat([history, legacy], ignore_index=True)
+        integrity = main.accuracy_integrity_summary(history)
+        self.assertEqual(integrity["completed"], 321)
+        self.assertEqual(integrity["incorrect"], 167)
+
+
+
 if __name__ == "__main__":
     unittest.main()
