@@ -59,6 +59,31 @@ class HistoricalBacktestSamplingTests(unittest.TestCase):
                     main.historical_backtest(self.make_bullish_frame(), horizon_bars=horizon)
 
 
+class IndicatorCausalityTests(unittest.TestCase):
+    def test_past_indicator_values_do_not_change_when_future_rows_are_added(self):
+        closes = [100.0 + i * 0.15 + (i % 7) * 0.08 for i in range(120)]
+        frame = pd.DataFrame({
+            "close": closes,
+            "high": [value + 0.4 + (i % 3) * 0.02 for i, value in enumerate(closes)],
+            "low": [value - 0.35 - (i % 4) * 0.015 for i, value in enumerate(closes)],
+        })
+        cutoff = 85
+        full = main.add_indicators(frame)
+        prefix = main.add_indicators(frame.iloc[:cutoff + 1].copy())
+        columns = [
+            "ema9", "ema21", "ema50", "rsi", "macd",
+            "macd_signal", "macd_hist", "atr", "adx",
+            "plus_di", "minus_di", "support", "resistance",
+        ]
+        for column in columns:
+            with self.subTest(column=column):
+                self.assertAlmostEqual(
+                    float(full.iloc[cutoff][column]),
+                    float(prefix.iloc[-1][column]),
+                    places=10,
+                )
+
+
 class CompletedCandleCutoffTests(unittest.TestCase):
     def test_shared_cutoff_excludes_candles_not_yet_closed(self):
         frame = pd.DataFrame({
