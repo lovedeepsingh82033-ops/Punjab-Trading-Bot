@@ -523,11 +523,16 @@ def add_indicators(df):
 
 
 def historical_backtest(df, horizon_bars=3):
-    """Exact-horizon historical test of current indicator rules; not net profit."""
+    """
+    Chronological out-of-sample holdout test of the fixed indicator rules.
+    The first 70% is reserved as history; only the final 30% is scored.
+    This measures directional movement, not net profit or future certainty.
+    """
     observations = []
     required = ["ema9", "ema21", "ema50", "rsi", "macd", "macd_signal",
                 "macd_hist", "adx", "plus_di", "minus_di"]
-    for i in range(50, len(df) - horizon_bars):
+    test_start = max(50, int(len(df) * 0.70))
+    for i in range(test_start, len(df) - horizon_bars):
         row = df.iloc[i]
         if any(pd.isna(row[key]) for key in required):
             continue
@@ -921,10 +926,10 @@ def accuracy_breakdown(history, group_col):
 
 def format_report(r, mtf_text="Not enough matching timeframe data"):
     if r["signal"] == "BULLISH":
-        signal_display = "BUY 🟢"
+        signal_display = "BULLISH OBSERVATION 🟢"
         signal_icon = "🟢"
     elif r["signal"] == "BEARISH":
-        signal_display = "SELL 🔴"
+        signal_display = "BEARISH OBSERVATION 🔴"
         signal_icon = "🔴"
     else:
         return None
@@ -954,9 +959,9 @@ def format_report(r, mtf_text="Not enough matching timeframe data"):
 
 def format_discord_report(r):
     if r["signal"] == "BULLISH":
-        signal_display = "BUY 🟢"
+        signal_display = "BULLISH OBSERVATION 🟢"
     elif r["signal"] == "BEARISH":
-        signal_display = "SELL 🔴"
+        signal_display = "BEARISH OBSERVATION 🔴"
     else:
         return None
 
@@ -1162,7 +1167,7 @@ def main():
         f"{market_lines}\n\n"
         "<b>Accuracy by Timeframe</b>\n"
         f"{timeframe_lines}\n\n"
-        "<b>Historical Rule Test (exact 3-candle horizon)</b>\n"
+        "<b>Out-of-Sample Holdout Test (final 30%; exact 3-candle horizon)</b>\n"
         f"{backtest_text}\n\n"
         "<i>Accuracy includes only observations evaluated at exactly "
         "the third subsequent completed candle. Older variable-horizon "
@@ -1193,7 +1198,7 @@ def main():
         f"{market_lines}\n\n"
         "**Accuracy by Timeframe**\n"
         f"{timeframe_lines}\n\n"
-        "**Historical Rule Test (exact 3-candle horizon)**\n"
+        "**Out-of-Sample Holdout Test (final 30%; exact 3-candle horizon)**\n"
         f"{backtest_text}\n\n"
         "*Accuracy includes only exact third-candle evaluations. Older "
         "variable-horizon results are excluded. Hit rate excludes flats. "
