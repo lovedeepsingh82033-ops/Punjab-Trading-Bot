@@ -478,6 +478,42 @@ def add_indicators(df):
     return df
 
 
+def historical_backtest(df, horizon_bars=3):
+    """Exact-horizon historical test of current indicator rules; not net profit."""
+    observations = []
+    required = ["ema9", "ema21", "ema50", "rsi", "macd", "macd_signal",
+                "macd_hist", "adx", "plus_di", "minus_di"]
+    for i in range(50, len(df) - horizon_bars):
+        row = df.iloc[i]
+        if any(pd.isna(row[key]) for key in required):
+            continue
+        bull = sum([row["ema9"] > row["ema21"] > row["ema50"],
+                    row["close"] > row["ema21"], 50 < row["rsi"] < 68,
+                    row["macd"] > row["macd_signal"], row["macd_hist"] > 0,
+                    row["plus_di"] > row["minus_di"]])
+        bear = sum([row["ema9"] < row["ema21"] < row["ema50"],
+                    row["close"] < row["ema21"], 32 < row["rsi"] < 50,
+                    row["macd"] < row["macd_signal"], row["macd_hist"] < 0,
+                    row["minus_di"] > row["plus_di"]])
+        direction = None
+        if row["adx"] >= 18 and bull >= 4 and bull - bear >= 2:
+            direction = "BULLISH"
+        elif row["adx"] >= 18 and bear >= 4 and bear - bull >= 2:
+            direction = "BEARISH"
+        if direction is None:
+            continue
+        entry, future = float(row["close"]), float(df.iloc[i + horizon_bars]["close"])
+        if not np.isfinite(entry) or entry <= 0 or not np.isfinite(future):
+            continue
+        move = (future - entry) / entry * 100
+        observations.append(move if direction == "BULLISH" else -move)
+    if not observations:
+        return {"samples": 0, "hit_rate": None, "avg_move_pct": None, "median_move_pct": None}
+    values = np.asarray(observations, dtype=float)
+    return {"samples": len(values), "hit_rate": float((values > 0).mean() * 100),
+            "avg_move_pct": float(values.mean()), "median_move_pct": float(np.median(values))}
+
+
 def analyze(symbol, timeframe, interval):
     df = fetch_candles(symbol, interval)
 
@@ -487,6 +523,7 @@ def analyze(symbol, timeframe, interval):
         )
 
     df = add_indicators(df)
+    backtest = historical_backtest(df, horizon_bars=3)
     row = df.iloc[-1]
 
     required = [
@@ -589,6 +626,7 @@ def analyze(symbol, timeframe, interval):
         "resistance": float(row["resistance"]),
         "candle_time": candle_time,
         "signal_time": row["datetime"].isoformat(),
+        "backtest": backtest,
     }
 
 
@@ -895,6 +933,7 @@ def main():
     errors = 0
     pending_notifications = []
     scan_results = []
+    backtest_results = []
     outcomes_evaluated = 0
     correct_observations = 0
 
@@ -919,6 +958,7 @@ def main():
 
                 checked += 1
                 scan_results.append(result)
+                backtest_results.append({"symbol": symbol, "timeframe": timeframe, **result["backtest"]})
 
                 history, evaluated_now, correct_now = evaluate_past_signals(
                     result, history, horizon_bars=3
@@ -1010,6 +1050,16 @@ def main():
     market_lines = "\\n".join(market_accuracy) if market_accuracy else "Not available yet"
     timeframe_lines = "\\n".join(timeframe_accuracy) if timeframe_accuracy else "Not available yet"
 
+    tested = [x for x in backtest_results if x["samples"] > 0]
+    tested.sort(key=lambda x: x["avg_move_pct"], reverse=True)
+    backtest_lines = [
+        f'{x["symbol"]} {x["timeframe"]}: {x["samples"]} samples; '
+        f'positive {x["hit_rate"]:.1f}%; average {x["avg_move_pct"]:+.4f}%; '
+        f'median {x["median_move_pct"]:+.4f}%'
+        for x in tested
+    ]
+    backtest_text = "\\n".join(backtest_lines) if backtest_lines else "Not enough historical samples yet"
+
     summary = (
         "<b>Punjab Scan Complete</b>\n\n"
         f"Markets: {len(SYMBOLS)}\n"
@@ -1030,6 +1080,8 @@ def main():
         f"{market_lines}\n\n"
         "<b>Accuracy by Timeframe</b>\n"
         f"{timeframe_lines}\n\n"
+        "<b>Historical Rule Test (exact 3-candle horizon)</b>\\n"
+        f"{backtest_text}\\n\\n"
         "<i>Hit rate = correct / (correct + incorrect); "
         "flat outcomes are excluded. Historical observations are not "
         "verified profitable trades. No orders were placed.</i>"
@@ -1057,6 +1109,8 @@ def main():
         f"{market_lines}\n\n"
         "**Accuracy by Timeframe**\n"
         f"{timeframe_lines}\n\n"
+        "**Historical Rule Test (exact 3-candle horizon)**\\n"
+        f"{backtest_text}\\n\\n"
         "*Hit rate excludes flat outcomes. Historical observations are not "
         "verified profitable trades. No orders were placed.*"
     )
