@@ -10,6 +10,46 @@ def item(tf, direction, adx=25):
     return {"symbol": "EUR/USD", "timeframe": tf, "direction": direction, "adx": adx}
 
 
+class CompletedCandleCutoffTests(unittest.TestCase):
+    def test_shared_cutoff_excludes_candles_not_yet_closed(self):
+        frame = pd.DataFrame({
+            "datetime": pd.to_datetime([
+                "2026-11-22T10:00:00Z",
+                "2026-11-22T10:05:00Z",
+                "2026-11-22T10:10:00Z",
+            ], utc=True),
+            "close": [1.0, 1.1, 1.2],
+        })
+        result = main.filter_completed_candles(
+            frame, "5min", "2026-11-22T10:10:00Z"
+        )
+        self.assertEqual(len(result), 2)
+        self.assertEqual(
+            result["datetime"].iloc[-1],
+            pd.Timestamp("2026-11-22T10:05:00Z"),
+        )
+
+    def test_cutoff_is_normalized_to_utc(self):
+        frame = pd.DataFrame({
+            "datetime": pd.to_datetime(["2026-11-22T10:00:00Z"], utc=True),
+            "close": [1.0],
+        })
+        result = main.filter_completed_candles(
+            frame, "5min", "2026-11-22T12:05:00+02:00"
+        )
+        self.assertEqual(len(result), 1)
+
+    def test_unknown_interval_is_rejected(self):
+        frame = pd.DataFrame({
+            "datetime": pd.to_datetime(["2026-11-22T10:00:00Z"], utc=True),
+            "close": [1.0],
+        })
+        with self.assertRaises(ValueError):
+            main.filter_completed_candles(
+                frame, "2hour", "2026-11-22T12:00:00Z"
+            )
+
+
 class MTFTests(unittest.TestCase):
     def test_incomplete_timeframes_are_blocked(self):
         results = [item("M5", "BULLISH"), item("M15", "BULLISH"),
