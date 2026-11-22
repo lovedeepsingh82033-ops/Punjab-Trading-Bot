@@ -885,7 +885,12 @@ def save_new_record(result, history):
 def mtf_decision(result, same_market):
     """Strict MTF research gate; it is not a profitability guarantee."""
     direction = result["direction"]
+    timeframe_names = [item["timeframe"] for item in same_market]
     by_timeframe = {item["timeframe"]: item for item in same_market}
+    duplicate_timeframes = sorted(
+        name for name in set(timeframe_names)
+        if timeframe_names.count(name) > 1
+    )
     scanned = len(by_timeframe)
     votes = sum(item["direction"] == direction for item in by_timeframe.values())
     h1 = by_timeframe.get("H1")
@@ -897,10 +902,16 @@ def mtf_decision(result, same_market):
         and float(h1["adx"]) >= 20 and float(m30["adx"]) >= 20
     )
     expected_timeframes = set(TIMEFRAMES)
-    complete = set(by_timeframe) == expected_timeframes
+    complete = (
+        set(by_timeframe) == expected_timeframes
+        and len(timeframe_names) == len(expected_timeframes)
+        and not duplicate_timeframes
+    )
     passed = complete and votes >= 3 and h1_aligned and m30_aligned and anchors_strong
 
-    if not complete:
+    if duplicate_timeframes:
+        reason, cohort = "DUPLICATE_TIMEFRAMES", "INCOMPLETE"
+    elif not complete:
         reason, cohort = "INCOMPLETE_TIMEFRAMES", "INCOMPLETE"
     elif not h1_aligned:
         reason, cohort = "H1_NOT_ALIGNED", "BLOCKED"
@@ -918,6 +929,7 @@ def mtf_decision(result, same_market):
         "scanned": scanned, "h1_aligned": h1_aligned,
         "m30_aligned": m30_aligned, "reason": reason,
         "missing_timeframes": sorted(expected_timeframes - set(by_timeframe)),
+        "duplicate_timeframes": duplicate_timeframes,
     }
 
 
@@ -989,7 +1001,9 @@ def exact_verified_history(history):
     )
     exact = history[valid].copy()
     keys = ["symbol", "timeframe", "signal_time"]
-    missing_key = exact[keys].isna().any(axis=1)
+    missing_key = exact[keys].isna().any(axis=1) | exact[keys].apply(
+        lambda column: column.astype(str).str.strip().eq("")
+    ).any(axis=1)
     duplicate_key = exact.duplicated(subset=keys, keep=False)
     return exact[~(missing_key | duplicate_key)].copy()
 
@@ -1097,7 +1111,9 @@ def accuracy_integrity_summary(history):
     result["invalid_exact_status"] = int((exact_mask & ~valid_status).sum())
 
     keys = ["symbol", "timeframe", "signal_time"]
-    missing_key_mask = exact_all[keys].isna().any(axis=1)
+    missing_key_mask = exact_all[keys].isna().any(axis=1) | exact_all[keys].apply(
+        lambda column: column.astype(str).str.strip().eq("")
+    ).any(axis=1)
     duplicate_mask = exact_all.duplicated(subset=keys, keep=False)
     result["missing_keys"] = int(missing_key_mask.sum())
     result["duplicate_rows_quarantined"] = int(duplicate_mask.sum())
