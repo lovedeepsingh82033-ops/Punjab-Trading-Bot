@@ -931,12 +931,33 @@ def mtf_decision(result, same_market):
         h1 is not None and m30 is not None
         and float(h1["adx"]) >= 20 and float(m30["adx"]) >= 20
     )
+
+    # Every production result carries its candle-open timestamp and the
+    # common scan cutoff. A candle is fresh only while its close is no more
+    # than one full timeframe behind that cutoff.
+    freshness_errors = []
+    for item in by_timeframe.values():
+        timeframe = item.get("timeframe")
+        minutes = TIMEFRAMES.get(timeframe, (None, None))[1]
+        try:
+            candle_open = pd.to_datetime(item.get("signal_time"), utc=True, errors="coerce")
+            cutoff = pd.to_datetime(item.get("scan_cutoff"), utc=True, errors="coerce")
+            if minutes is None or pd.isna(candle_open) or pd.isna(cutoff):
+                raise ValueError("missing timing metadata")
+            candle_close = candle_open + pd.Timedelta(minutes=minutes)
+            age = cutoff - candle_close
+            if age < pd.Timedelta(0) or age > pd.Timedelta(minutes=minutes):
+                freshness_errors.append(timeframe)
+        except (TypeError, ValueError, OverflowError):
+            freshness_errors.append(timeframe)
+    stale_timeframes = sorted(set(freshness_errors))
     expected_timeframes = set(TIMEFRAMES)
     complete = (
         set(by_timeframe) == expected_timeframes
         and len(timeframe_names) == len(expected_timeframes)
         and not duplicate_timeframes
         and not mixed_symbols
+        and not stale_timeframes
     )
     passed = complete and votes >= 3 and h1_aligned and m30_aligned and anchors_strong
 
@@ -944,6 +965,8 @@ def mtf_decision(result, same_market):
         reason, cohort = "MIXED_SYMBOLS", "INCOMPLETE"
     elif duplicate_timeframes:
         reason, cohort = "DUPLICATE_TIMEFRAMES", "INCOMPLETE"
+    elif stale_timeframes:
+        reason, cohort = "STALE_OR_MISSING_CANDLE_TIMING", "INCOMPLETE"
     elif not complete:
         reason, cohort = "INCOMPLETE_TIMEFRAMES", "INCOMPLETE"
     elif not h1_aligned:
@@ -964,6 +987,7 @@ def mtf_decision(result, same_market):
         "missing_timeframes": sorted(expected_timeframes - set(by_timeframe)),
         "duplicate_timeframes": duplicate_timeframes,
         "mixed_symbols": mixed_symbols,
+        "stale_timeframes": stale_timeframes,
     }
 
 
