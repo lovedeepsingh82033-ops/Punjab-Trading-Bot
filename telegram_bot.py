@@ -5,6 +5,7 @@ import logging
 import requests
 
 TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
+CHAT_ID = os.getenv("CHAT_ID", "").strip()
 
 if not TOKEN:
     raise RuntimeError("TELEGRAM_TOKEN is missing.")
@@ -15,6 +16,11 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
+
+def log_safe_error(context, exc):
+    """Log only the exception type; request URLs may contain the bot token."""
+    logging.error("%s: %s", context, type(exc).__name__)
+
 
 def get_updates(offset=None):
     params = {
@@ -52,11 +58,16 @@ def send_message(chat_id, message):
     response.raise_for_status()
 
 
+def is_authorized_chat(chat_id, allowed_chat_id=CHAT_ID):
+    """Fail closed unless the incoming chat matches the configured allowlist."""
+    return bool(allowed_chat_id) and str(chat_id) == str(allowed_chat_id)
+
+
 def handle_message(message):
     chat = message.get("chat", {})
     chat_id = chat.get("id")
 
-    if not chat_id:
+    if not is_authorized_chat(chat_id):
         return
 
     command = message.get("text", "").strip().split("@")[0].lower()
@@ -86,20 +97,24 @@ def handle_message(message):
         )
 
 
-def main():
-    logging.info("Telegram command bot started.")
-
+def get_initial_offset():
+    """Fetch the initial update offset without exposing token-bearing request URLs."""
     try:
         updates = get_updates()
-        offset = max(
-            (item["update_id"] for item in updates),
-            default=0
-        ) + 1
     except requests.RequestException as exc:
-        # Do not let an initial connection failure print the token-bearing URL.
-        logging.error("Telegram startup connection failed: %s", type(exc).__name__)
-        offset = None
+        log_safe_error("Telegram startup connection failed", exc)
         time.sleep(5)
+        return None
+
+    return max(
+        (item["update_id"] for item in updates),
+        default=0
+    ) + 1
+
+
+def main():
+    logging.info("Telegram command bot started.")
+    offset = get_initial_offset()
 
     while True:
         try:
@@ -113,11 +128,11 @@ def main():
                     handle_message(message)
 
         except requests.RequestException as exc:
-            logging.error("Telegram connection failed: %s", type(exc).__name__)
+            log_safe_error("Telegram connection failed", exc)
             time.sleep(5)
 
         except Exception as exc:
-            logging.error("Unexpected bot error: %s", type(exc).__name__)
+            log_safe_error("Unexpected bot error", exc)
             time.sleep(5)
 
 
