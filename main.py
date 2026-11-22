@@ -695,6 +695,7 @@ def format_report(r):
         f"〽️ MACD histogram: <code>{r['macd_hist']:.6f}</code>\n\n"
         f"🕒 Candle: {r['candle_time']}\n"
         "━━━━━━━━━━━━━━━━━━\n"
+        '<a href="https://github.com/lovedeepsingh82033-ops/Punjab-Trading-Bot">📂 View Punjab Scanner on GitHub</a>\\n\\n'
         "<i>Educational market observation only. "
         "Not a trading instruction or prediction. "
         "Indicators can be wrong. No orders are placed.</i>"
@@ -796,15 +797,7 @@ def main():
                     report = format_report(result)
 
                     if report is not None:
-                        signal_keyboard = {
-                            "inline_keyboard": [[
-                                {
-                                    "text": "📂 View Punjab Scanner on GitHub",
-                                    "url": "https://github.com/lovedeepsingh82033-ops/Punjab-Trading-Bot"
-                                }
-                            ]]
-                        }
-                        if telegram(report, reply_markup=signal_keyboard):
+                        if telegram(report):
                             telegram_sent += 1
 
                         discord_report = format_discord_report(result)
