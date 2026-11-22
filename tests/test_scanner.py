@@ -348,3 +348,64 @@ class MTFCohortHistoryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class MTFEvidenceAndTimestampTests(unittest.TestCase):
+    def test_wilson_interval_and_minimum_sample_warning(self):
+        rows = []
+        for i in range(20):
+            rows.append({
+                "symbol": "EUR/USD", "timeframe": "M5",
+                "signal_time": f"2026-11-22T10:{i:02d}:00Z",
+                "mtf_cohort": "PASSED",
+                "outcome_method": "EXACT_3_CANDLE",
+                "outcome_status": "CORRECT" if i < 12 else "INCORRECT",
+            })
+        lines, stats = main.mtf_cohort_evidence_summary(pd.DataFrame(rows))
+        self.assertEqual(stats["PASSED"]["directional_samples"], 20)
+        self.assertAlmostEqual(stats["PASSED"]["hit_rate"], 0.60)
+        self.assertGreater(stats["PASSED"]["ci95_high"], stats["PASSED"]["ci95_low"])
+        self.assertIn("insufficient evidence", lines[0])
+        self.assertIn("comparison: not ready", lines[2])
+
+    def test_equivalent_timezone_strings_match_when_labeling_cohort(self):
+        result = item("M5", "BULLISH")
+        result["signal_time"] = "2026-11-22T10:00:00+00:00"
+        scan = [
+            result,
+            item("M15", "BULLISH"),
+            item("M30", "BULLISH"),
+            item("H1", "BULLISH"),
+        ]
+        history = pd.DataFrame([{
+            "symbol": "EUR/USD", "timeframe": "M5",
+            "signal_time": "2026-11-22T12:00:00+02:00",
+            "mtf_cohort": "UNASSESSED",
+        }])
+        labeled = main.label_mtf_cohorts(scan, history)
+        self.assertEqual(labeled.loc[0, "mtf_cohort"], "PASSED")
+
+    def test_equivalent_timestamp_does_not_create_duplicate_record(self):
+        result = {
+            "symbol": "EUR/USD", "timeframe": "M5",
+            "signal_time": "2026-11-22T10:00:00+00:00",
+        }
+        history = pd.DataFrame([{
+            "symbol": "EUR/USD", "timeframe": "M5",
+            "signal_time": "2026-11-22T12:00:00+02:00",
+        }])
+        updated, is_new = main.save_new_record(result, history)
+        self.assertFalse(is_new)
+        self.assertEqual(len(updated), 1)
+
+    def test_equivalent_timestamp_duplicate_rows_are_excluded(self):
+        rows = [
+            {"symbol": "EUR/USD", "timeframe": "M5",
+             "signal_time": "2026-11-22T10:00:00Z",
+             "outcome_method": "EXACT_3_CANDLE", "outcome_status": "CORRECT"},
+            {"symbol": "EUR/USD", "timeframe": "M5",
+             "signal_time": "2026-11-22T12:00:00+02:00",
+             "outcome_method": "EXACT_3_CANDLE", "outcome_status": "INCORRECT"},
+        ]
+        self.assertEqual(main.accuracy_summary(pd.DataFrame(rows))["completed"], 0)
