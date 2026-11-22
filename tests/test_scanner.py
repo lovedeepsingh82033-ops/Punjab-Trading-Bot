@@ -372,7 +372,7 @@ class MTFEvidenceAndTimestampTests(unittest.TestCase):
 
     def test_equivalent_timezone_strings_match_when_labeling_cohort(self):
         result = item("M5", "BULLISH")
-        result["signal_time"] = "2026-11-22T10:00:00+00:00"
+        result["signal_time"] = "2026-11-22T09:55:00+00:00"
         scan = [
             result,
             item("M15", "BULLISH"),
@@ -381,7 +381,7 @@ class MTFEvidenceAndTimestampTests(unittest.TestCase):
         ]
         history = pd.DataFrame([{
             "symbol": "EUR/USD", "timeframe": "M5",
-            "signal_time": "2026-11-22T12:00:00+02:00",
+            "signal_time": "2026-11-22T11:55:00+02:00",
             "mtf_cohort": "UNASSESSED",
         }])
         labeled = main.label_mtf_cohorts(scan, history)
