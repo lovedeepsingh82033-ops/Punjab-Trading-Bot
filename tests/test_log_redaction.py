@@ -13,6 +13,8 @@ class RequestLogRedactionTests(unittest.TestCase):
 
         output = "\n".join(captured.output)
         self.assertNotIn("TEST_BOT_TOKEN", output)
+        self.assertNotIn("discord-test-token", output)
+        self.assertNotIn("discord.com", output)
         self.assertNotIn("secret-query-value", output)
         self.assertNotIn("api.telegram.org", output)
         self.assertNotIn("private response body", output)
@@ -38,7 +40,7 @@ class RequestLogRedactionTests(unittest.TestCase):
 
     def test_discord_request_error_does_not_log_sensitive_details(self):
         error = requests.RequestException(
-            "https://api.telegram.org/botTEST_BOT_TOKEN/sendMessage"
+            "https://discord.com/api/v10/channels/456/messages"
             "?key=secret-query-value"
         )
         response = requests.Response()
