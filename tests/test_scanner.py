@@ -36,6 +36,17 @@ class MTFTests(unittest.TestCase):
         self.assertEqual(decision["reason"], "DUPLICATE_TIMEFRAMES")
         self.assertEqual(decision["duplicate_timeframes"], ["H1"])
 
+    def test_mixed_symbols_cannot_complete_an_mtf_cohort(self):
+        results = [item("M5", "BULLISH"), item("M15", "BULLISH"),
+                   item("M30", "BULLISH"), item("H1", "BULLISH")]
+        foreign = item("H1", "BULLISH")
+        foreign["symbol"] = "GBP/USD"
+        decision = main.mtf_decision(results[0], results + [foreign])
+        self.assertFalse(decision["passed"])
+        self.assertEqual(decision["cohort"], "INCOMPLETE")
+        self.assertEqual(decision["reason"], "MIXED_SYMBOLS")
+        self.assertEqual(decision["mixed_symbols"], ["GBP/USD"])
+
     def test_weak_anchor_is_blocked(self):
         results = [item("M5", "BULLISH"), item("M15", "BULLISH"),
                    item("M30", "BULLISH", 15), item("H1", "BULLISH")]
