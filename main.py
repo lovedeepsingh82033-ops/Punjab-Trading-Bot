@@ -273,6 +273,24 @@ def fetch_candles(symbol, interval):
                 .reset_index(drop=True)
             )
 
+            # Reject malformed OHLC rows before calculating indicators.
+            valid_ohlc = (
+                (df["open"] > 0)
+                & (df["high"] > 0)
+                & (df["low"] > 0)
+                & (df["close"] > 0)
+                & (df["high"] >= df["low"])
+                & (df["high"] >= df[["open", "close"]].max(axis=1))
+                & (df["low"] <= df[["open", "close"]].min(axis=1))
+            )
+            rejected_rows = int((~valid_ohlc).sum())
+            if rejected_rows:
+                logging.warning(
+                    "Rejected %s malformed OHLC rows for %s %s.",
+                    rejected_rows, symbol, interval
+                )
+            df = df.loc[valid_ohlc].reset_index(drop=True)
+
             minutes = next(
                 v[1] for v in TIMEFRAMES.values()
                 if v[0] == interval
@@ -530,7 +548,7 @@ def analyze(symbol, timeframe, interval):
         and bull_score >= 4
         and bull_score - bear_score >= 2
     ):
-        signal = "BUY"
+        signal = "BULLISH"
         direction = "BULLISH"
 
     elif (
@@ -538,7 +556,7 @@ def analyze(symbol, timeframe, interval):
         and bear_score >= 4
         and bear_score - bull_score >= 2
     ):
-        signal = "SELL"
+        signal = "BEARISH"
         direction = "BEARISH"
 
     candle_time = row["datetime"].strftime(
@@ -649,19 +667,18 @@ def save_new_record(result, history):
 
 
 def format_report(r):
-    if r["signal"] == "BUY":
-        signal_display = "BUY ▲"
-    elif r["signal"] == "SELL":
-        signal_display = "SELL ▼"
+    if r["signal"] == "BULLISH":
+        signal_display = "BULLISH OBSERVATION ▲"
+    elif r["signal"] == "BEARISH":
+        signal_display = "BEARISH OBSERVATION ▼"
     else:
-        signal_display = "NEUTRAL"
+        signal_display = "NEUTRAL OBSERVATION"
 
     return (
         "<b>Punjab Market Scanner</b>\n\n"
         f"Market: <b>{r['symbol']}</b>\n"
         f"Timeframe: <b>{r['timeframe']}</b>\n\n"
-        f"Signal: <b>{signal_display}</b>\n"
-        f"Direction: <b>{r['direction']}</b>\n"
+        f"Market bias: <b>{signal_display}</b>\n"
         f"Bull Score: {r['bull_score']}/6\n"
         f"Bear Score: {r['bear_score']}/6\n\n"
         f"Last completed candle: <code>{r['price']:.6f}</code>\n"
@@ -688,6 +705,7 @@ def format_discord_report(r):
         "**Punjab Market Scanner — Educational Update**\n\n"
         f"**Market:** {r['symbol']}\n"
         f"**Timeframe:** {r['timeframe']}\n"
+        f"**Market bias:** {r['direction']} (observation only)\n"
         f"**Last completed candle:** {r['price']:.6f}\n\n"
         f"EMA 9: {r['ema9']:.6f}\n"
         f"EMA 21: {r['ema21']:.6f}\n"
