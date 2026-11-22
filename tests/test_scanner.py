@@ -26,6 +26,16 @@ class MTFTests(unittest.TestCase):
         self.assertTrue(decision["passed"])
         self.assertEqual(decision["votes"], 3)
 
+    def test_duplicate_timeframe_is_incomplete(self):
+        results = [item("M5", "BULLISH"), item("M15", "BULLISH"),
+                   item("M30", "BULLISH"), item("H1", "BULLISH"),
+                   item("H1", "BULLISH")]
+        decision = main.mtf_decision(results[0], results)
+        self.assertFalse(decision["passed"])
+        self.assertEqual(decision["cohort"], "INCOMPLETE")
+        self.assertEqual(decision["reason"], "DUPLICATE_TIMEFRAMES")
+        self.assertEqual(decision["duplicate_timeframes"], ["H1"])
+
     def test_weak_anchor_is_blocked(self):
         results = [item("M5", "BULLISH"), item("M15", "BULLISH"),
                    item("M30", "BULLISH", 15), item("H1", "BULLISH")]
@@ -49,6 +59,19 @@ class MTFTests(unittest.TestCase):
         summary = main.accuracy_summary(history)
         self.assertEqual(summary["completed"], 2)
         self.assertAlmostEqual(summary["win_rate"], 50.0)
+
+    def test_blank_signal_key_is_excluded_from_accuracy(self):
+        history = pd.DataFrame([{
+            "symbol": "EUR/USD",
+            "timeframe": "M5",
+            "signal_time": "   ",
+            "outcome_method": "EXACT_3_CANDLE",
+            "outcome_status": "CORRECT",
+        }])
+        self.assertEqual(main.accuracy_summary(history)["completed"], 0)
+        integrity = main.accuracy_integrity_summary(history)
+        self.assertEqual(integrity["missing_keys"], 1)
+        self.assertEqual(integrity["status"], "WARNING")
 
     def test_unreadable_history_fails_closed(self):
         with patch.object(main.os.path, "exists", return_value=True), \
