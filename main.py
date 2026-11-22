@@ -837,6 +837,12 @@ def save_new_record(result, history):
         "macd": result["macd"],
         "macd_signal": result["macd_signal"],
         "macd_hist": result["macd_hist"],
+        "mtf_cohort": "UNASSESSED" if result["direction"] in ("BULLISH", "BEARISH") else "NOT_DIRECTIONAL",
+        "mtf_votes": 0,
+        "mtf_scanned": 0,
+        "mtf_h1_aligned": False,
+        "mtf_m30_aligned": False,
+        "mtf_reason": "Awaiting complete market scan" if result["direction"] in ("BULLISH", "BEARISH") else "No directional signal",
         "recorded_at_utc": datetime.now(
             timezone.utc
         ).isoformat(),
@@ -856,6 +862,115 @@ def save_new_record(result, history):
 
     return history, True
 
+
+
+def mtf_decision(result, same_market):
+    """Strict MTF research gate; it is not a profitability guarantee."""
+    direction = result["direction"]
+    by_timeframe = {item["timeframe"]: item for item in same_market}
+    scanned = len(by_timeframe)
+    votes = sum(item["direction"] == direction for item in by_timeframe.values())
+    h1 = by_timeframe.get("H1")
+    m30 = by_timeframe.get("M30")
+    h1_aligned = h1 is not None and h1["direction"] == direction
+    m30_aligned = m30 is not None and m30["direction"] == direction
+    anchors_strong = (
+        h1 is not None and m30 is not None
+        and float(h1["adx"]) >= 20 and float(m30["adx"]) >= 20
+    )
+    complete = scanned == len(TIMEFRAMES)
+    passed = complete and votes >= 3 and h1_aligned and m30_aligned and anchors_strong
+
+    if not complete:
+        reason, cohort = "INCOMPLETE_TIMEFRAMES", "INCOMPLETE"
+    elif not h1_aligned:
+        reason, cohort = "H1_NOT_ALIGNED", "BLOCKED"
+    elif not m30_aligned:
+        reason, cohort = "M30_NOT_ALIGNED", "BLOCKED"
+    elif votes < 3:
+        reason, cohort = "LESS_THAN_3_OF_4_AGREE", "BLOCKED"
+    elif not anchors_strong:
+        reason, cohort = "H1_OR_M30_ADX_BELOW_20", "BLOCKED"
+    else:
+        reason, cohort = "CONFIRMED_3_OF_4_WITH_STRONG_H1_M30", "PASSED"
+
+    return {
+        "passed": passed, "cohort": cohort, "votes": votes,
+        "scanned": scanned, "h1_aligned": h1_aligned,
+        "m30_aligned": m30_aligned, "reason": reason,
+    }
+
+
+def label_mtf_cohorts(scan_results, history):
+    """Freeze each observation's first MTF decision; never relabel old cohorts."""
+    if history.empty:
+        return history
+    defaults = {
+        "mtf_cohort": "LEGACY_UNKNOWN", "mtf_votes": 0,
+        "mtf_scanned": 0, "mtf_h1_aligned": False,
+        "mtf_m30_aligned": False,
+        "mtf_reason": "Legacy record; MTF cohort not measured",
+    }
+    for column, default in defaults.items():
+        if column not in history.columns:
+            history[column] = default
+        else:
+            history[column] = history[column].fillna(default)
+
+    for result in scan_results:
+        if result["direction"] not in ("BULLISH", "BEARISH"):
+            continue
+        same_market = [x for x in scan_results if x["symbol"] == result["symbol"]]
+        decision = mtf_decision(result, same_market)
+        mask = (
+            (history["symbol"].astype(str) == str(result["symbol"]))
+            & (history["timeframe"].astype(str) == str(result["timeframe"]))
+            & (history["signal_time"].astype(str) == str(result["signal_time"]))
+            & (history["mtf_cohort"].astype(str) == "UNASSESSED")
+        )
+        values = {
+            "mtf_cohort": decision["cohort"],
+            "mtf_votes": decision["votes"],
+            "mtf_scanned": decision["scanned"],
+            "mtf_h1_aligned": decision["h1_aligned"],
+            "mtf_m30_aligned": decision["m30_aligned"],
+            "mtf_reason": decision["reason"],
+        }
+        for column, value in values.items():
+            history.loc[mask, column] = value
+    return history
+
+
+def mtf_accuracy_summary(history):
+    """Report matured exact-three-candle results for passed/blocked cohorts."""
+    empty = {
+        "PASSED": "PASSED: no matured observations yet",
+        "BLOCKED": "BLOCKED: no matured observations yet",
+    }
+    if history.empty or "mtf_cohort" not in history.columns:
+        return empty
+    if "outcome_method" not in history.columns or "outcome_status" not in history.columns:
+        return empty
+    valid = history[
+        (history["outcome_method"].astype(str) == "EXACT_3_CANDLE")
+        & history["outcome_status"].fillna("").astype(str).str.upper().isin(
+            ["CORRECT", "INCORRECT", "FLAT"]
+        )
+    ]
+    lines = {}
+    for cohort in ("PASSED", "BLOCKED"):
+        group = valid[valid["mtf_cohort"].astype(str) == cohort]
+        statuses = group["outcome_status"].fillna("").astype(str).str.upper()
+        correct = int((statuses == "CORRECT").sum())
+        incorrect = int((statuses == "INCORRECT").sum())
+        flat = int((statuses == "FLAT").sum())
+        decisive = correct + incorrect
+        rate = f"{correct / decisive * 100:.1f}%" if decisive else "not available"
+        lines[cohort] = (
+            f"{cohort}: {len(group)} matured; {correct} correct / "
+            f"{incorrect} incorrect / {flat} flat; hit rate {rate}"
+        )
+    return lines
 
 
 def accuracy_summary(history):
@@ -1094,45 +1209,34 @@ def main():
             "was reached."
         )
 
-    # Conservative multi-timeframe alert gate. H1 must agree and at
-    # least 2 of the 4 configured timeframes must share the direction.
-    # This reduces conflicting alerts; it does NOT establish profitability.
+    # Freeze each signal's MTF cohort once; labels are not backfilled onto legacy data.
+    history = label_mtf_cohorts(scan_results, history)
+
     mtf_blocked = 0
+    mtf_incomplete = 0
     for result in pending_notifications:
         same_market = [
             item for item in scan_results
             if item["symbol"] == result["symbol"]
         ]
-        same_direction = sum(
-            item["signal"] == result["signal"]
-            for item in same_market
-        )
-        scanned_count = len(same_market)
-        h1_result = next(
-            (item for item in same_market if item["timeframe"] == "H1"),
-            None
-        )
-        h1_agrees = (
-            h1_result is not None
-            and h1_result["signal"] == result["signal"]
-        )
-        mtf_confirmed = (
-            scanned_count == len(TIMEFRAMES)
-            and same_direction >= 2
-            and h1_agrees
-        )
+        decision = mtf_decision(result, same_market)
 
-        if not mtf_confirmed:
-            mtf_blocked += 1
+        if not decision["passed"]:
+            if decision["cohort"] == "INCOMPLETE":
+                mtf_incomplete += 1
+            else:
+                mtf_blocked += 1
             logging.info(
-                "MTF filter blocked %s %s %s (agreement=%s/%s, H1=%s)",
-                result["symbol"], result["timeframe"], result["signal"],
-                same_direction, scanned_count, h1_agrees
+                "MTF %s %s %s: %s (agreement=%s/%s, H1=%s, M30=%s)",
+                decision["cohort"], result["symbol"], result["timeframe"],
+                decision["reason"], decision["votes"], decision["scanned"],
+                decision["h1_aligned"], decision["m30_aligned"]
             )
             continue
 
         mtf_text = (
-            f"CONFIRMED: {same_direction}/{scanned_count} timeframes; H1 aligned"
+            f"CONFIRMED: {decision['votes']}/{decision['scanned']} timeframes; "
+            "H1 + M30 aligned; anchor ADX >= 20"
         )
         report = format_report(result, mtf_text)
         if telegram(report):
@@ -1142,7 +1246,10 @@ def main():
         if discord_report is not None and discord(discord_report):
             discord_sent += 1
 
-    logging.info("MTF filter blocked %s candidate alerts.", mtf_blocked)
+    logging.info(
+        "MTF filter blocked %s candidates; %s incomplete.",
+        mtf_blocked, mtf_incomplete
+    )
 
     try:
         history.to_csv(HISTORY_FILE, index=False)
@@ -1161,6 +1268,8 @@ def main():
     timeframe_accuracy = accuracy_breakdown(history, "timeframe")
     market_lines = "\n".join(market_accuracy) if market_accuracy else "Not available yet"
     timeframe_lines = "\n".join(timeframe_accuracy) if timeframe_accuracy else "Not available yet"
+    mtf_accuracy = mtf_accuracy_summary(history)
+    mtf_accuracy_text = "\n".join(mtf_accuracy.values())
 
     tested = [x for x in backtest_results if x["samples"] > 0]
     tested.sort(key=lambda x: x["avg_move_pct"], reverse=True)
@@ -1181,7 +1290,10 @@ def main():
         f"Telegram updates sent: {telegram_sent}\n"
         f"Discord updates sent: {discord_sent}\n"
         f"Data/processing issues: {errors}\n"
-        f"Past observations evaluated this scan: {outcomes_evaluated}\n\n"
+        f"Past observations evaluated this scan: {outcomes_evaluated}\n"
+        f"MTF blocked: {mtf_blocked} | incomplete: {mtf_incomplete}\n\n"
+        "<b>MTF Cohort Accuracy (exact 3-candle; legacy rows excluded)</b>\n"
+        f"{mtf_accuracy_text}\n\n"
         "<b>Verified Exact 3-Candle Directional Accuracy</b>\n"
         f"Completed observations: {accuracy['completed']}\n"
         f"Correct: {accuracy['correct']}\n"
@@ -1212,7 +1324,10 @@ def main():
         f"Telegram updates sent: {telegram_sent}\n"
         f"Discord updates sent: {discord_sent}\n"
         f"Data/processing issues: {errors}\n"
-        f"Past observations evaluated this scan: {outcomes_evaluated}\n\n"
+        f"Past observations evaluated this scan: {outcomes_evaluated}\n"
+        f"MTF blocked: {mtf_blocked} | incomplete: {mtf_incomplete}\n\n"
+        "**MTF Cohort Accuracy (exact 3-candle; legacy rows excluded)**\n"
+        f"{mtf_accuracy_text}\n\n"
         "**Overall Historical Directional Accuracy**\n"
         f"Completed observations: {accuracy['completed']}\n"
         f"Correct: {accuracy['correct']}\n"
