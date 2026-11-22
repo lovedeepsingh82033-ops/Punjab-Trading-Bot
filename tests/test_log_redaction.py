@@ -38,6 +38,24 @@ class RequestLogRedactionTests(unittest.TestCase):
                 lambda: main.telegram("test message"),
             )
 
+    def test_telegram_api_error_description_is_not_logged(self):
+        secret_description = "sensitive server detail with token-like-value"
+        with patch.object(main, "TOKEN", "TEST_BOT_TOKEN"), patch.object(
+            main, "CHAT_ID", "123"
+        ), patch.object(
+            main.session, "post",
+            return_value=type("Response", (), {
+                "raise_for_status": lambda self: None,
+                "json": lambda self: {"ok": False, "description": secret_description},
+            })(),
+        ), self.assertLogs("root", level="ERROR") as captured:
+            self.assertFalse(main.telegram("test message"))
+
+        output = "\\n".join(captured.output)
+        self.assertIn("Telegram API rejected the message", output)
+        self.assertNotIn(secret_description, output)
+        self.assertNotIn("TEST_BOT_TOKEN", output)
+
     def test_discord_request_error_does_not_log_sensitive_details(self):
         error = requests.RequestException(
             "https://discord.com/api/v10/channels/456/messages"
