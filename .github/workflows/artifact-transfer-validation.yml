@@ -1,0 +1,46 @@
+name: Offline Artifact Transfer Validation
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/artifact-transfer-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  artifact-roundtrip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create isolated synthetic history file
+        run: |
+          mkdir -p validation
+          printf 'symbol,timeframe,signal_time\nTEST,M5,2026-01-01T00:00:00Z\n' > validation/signal_history.csv
+          sha256sum validation/signal_history.csv | cut -d ' ' -f 1 > expected.sha256
+
+      - name: Upload synthetic artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-history-validation
+          path: validation/signal_history.csv
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Remove local copy before download
+        run: rm -rf validation
+
+      - name: Download synthetic artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: synthetic-history-validation
+          path: downloaded
+
+      - name: Verify artifact contents
+        run: |
+          test -s downloaded/signal_history.csv
+          actual="$(sha256sum downloaded/signal_history.csv | cut -d ' ' -f 1)"
+          expected="$(cat expected.sha256)"
+          test "$actual" = "$expected"
+          grep -qx 'TEST,M5,2026-01-01T00:00:00Z' downloaded/signal_history.csv
