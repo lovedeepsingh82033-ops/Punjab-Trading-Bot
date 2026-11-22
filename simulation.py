@@ -34,6 +34,10 @@ def summarize_paper_returns(gross_returns_pct, round_trip_cost_pct=0.0,
             raise ValueError("a percentage return must be greater than -100")
 
     net = [float(value) - float(round_trip_cost_pct) for value in values]
+    if any(not isfinite(value) or value <= -100 for value in net):
+        raise ValueError(
+            "every net return must be finite and greater than -100 after costs"
+        )
     count = len(net)
     if not count:
         return {
