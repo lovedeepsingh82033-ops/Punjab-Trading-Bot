@@ -724,6 +724,17 @@ def atomic_save_history(history, path=HISTORY_FILE):
                 logging.warning("Could not remove temporary history file: %s", temporary_path)
 
 
+def save_history_or_raise(history):
+    """Persist history or fail the run so stale history cannot be uploaded."""
+    try:
+        atomic_save_history(history)
+    except Exception as exc:
+        logging.exception("History persistence failed; aborting before artifact upload.")
+        raise RuntimeError(
+            "Signal history could not be saved; refusing to continue with stale data."
+        ) from exc
+
+
 def load_history():
     if not os.path.exists(HISTORY_FILE):
         return pd.DataFrame()
@@ -1539,12 +1550,9 @@ def main():
         mtf_blocked, mtf_incomplete
     )
 
-    try:
-        atomic_save_history(history)
-
-    except OSError:
-        logging.exception("Could not save history.")
-        errors += 1
+    # Persistence failure must fail the job; otherwise an older CSV could
+    # be uploaded as if it were the result of this scan.
+    save_history_or_raise(history)
 
     accuracy = accuracy_summary(history)
     win_rate_text = (
