@@ -128,12 +128,7 @@ def telegram(message, reply_markup=None):
         return True
 
     except (requests.RequestException, ValueError) as exc:
-        logging.error("Telegram error: %s", exc)
-        if getattr(exc, "response", None) is not None:
-            logging.error(
-                "Telegram response body: %s",
-                exc.response.text[:500]
-            )
+        logging.error("Telegram request failed: %s", safe_request_error(exc))
         return False
 
 
@@ -204,18 +199,7 @@ def discord(message):
         return True
 
     except requests.RequestException as exc:
-        logging.error("Discord error: %s", exc)
-
-        if exc.response is not None:
-            logging.error(
-                "Discord response status: %s",
-                exc.response.status_code
-            )
-            logging.error(
-                "Discord response body: %s",
-                exc.response.text[:500]
-            )
-
+        logging.error("Discord request failed: %s", safe_request_error(exc))
         return False
 
 
@@ -286,10 +270,7 @@ def fetch_candles(symbol, interval, as_of=None):
 
                 # A 429 can mean a per-minute limit or exhausted plan credits.
                 # Stop this run instead of repeating requests and worsening the limit.
-                try:
-                    error_detail = response.text[:500]
-                except Exception:
-                    error_detail = "No response details available."
+                error_detail = "response body redacted"
 
                 logging.error(
                     "Twelve Data HTTP 429 for %s %s. "
