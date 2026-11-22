@@ -560,7 +560,12 @@ def historical_backtest(df, horizon_bars=3):
             direction = "BEARISH"
         if direction is None:
             continue
-        entry, future = float(row["close"]), float(df.iloc[i + horizon_bars]["close"])
+        # The signal is known only after candle i closes. Model entry at the
+        # next candle open, then measure through the horizon candle close.
+        entry, future = (
+            float(df.iloc[i + 1]["open"]),
+            float(df.iloc[i + horizon_bars]["close"]),
+        )
         if not np.isfinite(entry) or entry <= 0 or not np.isfinite(future):
             continue
         move = (future - entry) / entry * 100
@@ -571,6 +576,7 @@ def historical_backtest(df, horizon_bars=3):
         return {
             "samples": 0, "hit_rate": None, "avg_move_pct": None,
             "median_move_pct": None, "overlap_policy": "NON_OVERLAPPING_HORIZON",
+            "entry_policy": "NEXT_CANDLE_OPEN_TO_HORIZON_CLOSE",
         }
     values = np.asarray(observations, dtype=float)
     return {
@@ -579,6 +585,7 @@ def historical_backtest(df, horizon_bars=3):
         "avg_move_pct": float(values.mean()),
         "median_move_pct": float(np.median(values)),
         "overlap_policy": "NON_OVERLAPPING_HORIZON",
+            "entry_policy": "NEXT_CANDLE_OPEN_TO_HORIZON_CLOSE",
     }
 
 
