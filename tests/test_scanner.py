@@ -7,7 +7,18 @@ import main
 
 
 def item(tf, direction, adx=25):
-    return {"symbol": "EUR/USD", "timeframe": tf, "direction": direction, "adx": adx}
+    candle_open = {
+        "M5": "2026-11-22T09:55:00Z",
+        "M15": "2026-11-22T09:45:00Z",
+        "M30": "2026-11-22T09:30:00Z",
+        "H1": "2026-11-22T09:00:00Z",
+    }.get(tf, "2026-11-22T09:55:00Z")
+    return {
+        "symbol": "EUR/USD", "timeframe": tf,
+        "direction": direction, "adx": adx,
+        "signal_time": candle_open,
+        "scan_cutoff": "2026-11-22T10:00:00Z",
+    }
 
 
 class CompletedCandleCutoffTests(unittest.TestCase):
