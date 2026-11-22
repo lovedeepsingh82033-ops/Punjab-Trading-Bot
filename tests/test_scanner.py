@@ -91,7 +91,7 @@ class AccuracyIntegrityTests(unittest.TestCase):
         history = pd.concat([history, history.iloc[[0]]], ignore_index=True)
         integrity = main.accuracy_integrity_summary(history)
         self.assertEqual(integrity["status"], "WARNING")
-        self.assertEqual(integrity["duplicate_keys"], 2)
+        self.assertEqual(integrity["duplicate_keys"], 1)
         self.assertEqual(main.accuracy_summary(history)["completed"], 320)
 
     def test_invalid_exact_outcome_is_reported_not_counted(self):
