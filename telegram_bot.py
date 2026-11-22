@@ -106,12 +106,12 @@ def main():
                 if message:
                     handle_message(message)
 
-        except requests.RequestException:
-            logging.exception("Telegram connection error.")
+        except requests.RequestException as exc:
+            logging.error("Telegram connection failed: %s", type(exc).__name__)
             time.sleep(5)
 
-        except Exception:
-            logging.exception("Unexpected bot error.")
+        except Exception as exc:
+            logging.error("Unexpected bot error: %s", type(exc).__name__)
             time.sleep(5)
 
 
