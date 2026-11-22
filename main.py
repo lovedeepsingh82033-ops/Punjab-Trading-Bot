@@ -30,7 +30,8 @@ TIMEFRAMES = {
     "H1": ("1h", 60),
 }
 
-OUTPUT_SIZE = 100
+# Fetch extra candles because the newest API candle may still be open.
+OUTPUT_SIZE = 120
 MIN_CANDLES = 100
 HISTORY_FILE = "signal_history.csv"
 API_URL = "https://api.twelvedata.com/time_series"
