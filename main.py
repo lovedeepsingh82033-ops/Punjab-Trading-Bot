@@ -1073,6 +1073,55 @@ def accuracy_breakdown(history, group_col):
     return lines
 
 
+
+def accuracy_integrity_summary(history):
+    """Reconcile exact-horizon totals against market/timeframe groups."""
+    result = {
+        "status": "OK", "warnings": [], "completed": 0,
+        "correct": 0, "incorrect": 0, "flat": 0,
+        "market_rows": 0, "timeframe_rows": 0,
+        "duplicate_keys": 0, "invalid_exact_status": 0,
+    }
+    if history.empty:
+        return result
+    required = {"symbol", "timeframe", "signal_time", "outcome_method", "outcome_status"}
+    if not required.issubset(history.columns):
+        result["status"] = "WARNING"
+        result["warnings"].append("Required history columns are missing")
+        return result
+
+    exact_mask = history["outcome_method"].fillna("").astype(str).eq("EXACT_3_CANDLE")
+    statuses = history["outcome_status"].fillna("").astype(str).str.upper()
+    valid_status = statuses.isin(["CORRECT", "INCORRECT", "FLAT"])
+    exact = history[exact_mask & valid_status].copy()
+    invalid_exact = int((exact_mask & ~valid_status).sum())
+
+    exact_statuses = exact["outcome_status"].fillna("").astype(str).str.upper()
+    result["correct"] = int((exact_statuses == "CORRECT").sum())
+    result["incorrect"] = int((exact_statuses == "INCORRECT").sum())
+    result["flat"] = int((exact_statuses == "FLAT").sum())
+    result["completed"] = len(exact)
+    result["invalid_exact_status"] = invalid_exact
+
+    keys = history[["symbol", "timeframe", "signal_time"]].astype(str)
+    result["duplicate_keys"] = int(keys.duplicated(keep=False).sum())
+    result["market_rows"] = int(exact.groupby("symbol", dropna=False).size().sum())
+    result["timeframe_rows"] = int(exact.groupby("timeframe", dropna=False).size().sum())
+
+    if result["market_rows"] != result["completed"]:
+        result["warnings"].append("Market breakdown does not reconcile with overall completed count")
+    if result["timeframe_rows"] != result["completed"]:
+        result["warnings"].append("Timeframe breakdown does not reconcile with overall completed count")
+    if invalid_exact:
+        result["warnings"].append(f"{invalid_exact} exact-horizon rows have invalid or pending outcome statuses")
+    if result["duplicate_keys"]:
+        result["warnings"].append(f"{result['duplicate_keys']} rows belong to duplicated symbol/timeframe/signal-time keys")
+    if result["warnings"]:
+        result["status"] = "WARNING"
+    return result
+
+
+
 def format_report(r, mtf_text="Not enough matching timeframe data"):
     if r["signal"] == "BULLISH":
         signal_display = "BULLISH OBSERVATION 🟢"
@@ -1303,6 +1352,8 @@ def main():
     market_lines = "\n".join(market_accuracy) if market_accuracy else "Not available yet"
     timeframe_lines = "\n".join(timeframe_accuracy) if timeframe_accuracy else "Not available yet"
     mtf_accuracy = mtf_accuracy_summary(history)
+    integrity = accuracy_integrity_summary(history)
+    integrity_warning_text = "; ".join(integrity["warnings"]) if integrity["warnings"] else "All totals reconcile; no duplicate keys detected"
     mtf_accuracy_text = "\n".join(mtf_accuracy.values())
     mtf_diagnostics = mtf_diagnostic_summary(scan_results)
     mtf_reason_text = (
@@ -1341,6 +1392,10 @@ def main():
         f"Incorrect: {accuracy['incorrect']}\n"
         f"Flat: {accuracy['flat']}\n"
         f"Directional hit rate: {win_rate_text}\n\n"
+        f"Data integrity: {integrity['status']}\n"
+        f"Market rows reconciled: {integrity['market_rows']} | timeframe rows reconciled: {integrity['timeframe_rows']}\n"
+        f"Duplicate keys: {integrity['duplicate_keys']} | invalid exact outcomes: {integrity['invalid_exact_status']}\n"
+        f"Integrity details: {integrity_warning_text}\n\n"
         "<b>Accuracy by Market</b>\n"
         f"{market_lines}\n\n"
         "<b>Accuracy by Timeframe</b>\n"
