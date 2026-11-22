@@ -3,6 +3,7 @@ name: Punjab Scanner Offline Validation
 on:
   push:
     branches:
+      - main
       - scanner-quality-validation
   pull_request:
     branches:
