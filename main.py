@@ -526,8 +526,10 @@ def historical_backtest(df, horizon_bars=3):
     """
     Chronological out-of-sample holdout test of the fixed indicator rules.
     The first 70% is reserved as history; only the final 30% is scored.
-    Qualifying outcome windows are non-overlapping. This measures directional
-    movement, not net profit, costs, or future certainty.
+    Qualifying outcome windows are non-overlapping. Signals are evaluated at
+    candle close, entered at the next candle open, and measured to the
+    horizon candle close. This measures directional movement, not net
+    profit, costs, or future certainty.
     """
     if not isinstance(horizon_bars, int) or isinstance(horizon_bars, bool) or horizon_bars < 1:
         raise ValueError("horizon_bars must be a positive integer")
@@ -1660,7 +1662,7 @@ def main():
         f"{timeframe_lines}\n\n"
         "**Non-overlapping Base-rule Holdout Sample (not MTF-filtered; final 30%, exact 3-candle horizon)**\n"
         f"{backtest_text}\n\n"
-        "*Backtest samples use non-overlapping exact 3-candle outcome windows. "
+        "*Backtest samples use next-candle-open entry and non-overlapping exact 3-candle outcome windows. "
         "Persisted accuracy includes only exact third-candle evaluations. "
         "Older variable-horizon results are excluded. Hit rate excludes flats. "
         "Spread, slippage, and fees are not included; this is not verified "
