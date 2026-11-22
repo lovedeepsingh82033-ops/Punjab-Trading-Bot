@@ -975,6 +975,25 @@ def label_mtf_cohorts(scan_results, history):
     return history
 
 
+def exact_verified_history(history):
+    """Return exact-horizon outcomes, excluding every row in duplicate signal keys."""
+    if history.empty:
+        return history.copy()
+    required = {"symbol", "timeframe", "signal_time", "outcome_method", "outcome_status"}
+    if not required.issubset(history.columns):
+        return history.iloc[0:0].copy()
+    statuses = history["outcome_status"].fillna("").astype(str).str.upper()
+    valid = (
+        history["outcome_method"].fillna("").astype(str).eq("EXACT_3_CANDLE")
+        & statuses.isin(["CORRECT", "INCORRECT", "FLAT"])
+    )
+    exact = history[valid].copy()
+    keys = ["symbol", "timeframe", "signal_time"]
+    missing_key = exact[keys].isna().any(axis=1)
+    duplicate_key = exact.duplicated(subset=keys, keep=False)
+    return exact[~(missing_key | duplicate_key)].copy()
+
+
 def mtf_accuracy_summary(history):
     """Report matured exact-three-candle results for passed/blocked cohorts."""
     empty = {
@@ -983,14 +1002,7 @@ def mtf_accuracy_summary(history):
     }
     if history.empty or "mtf_cohort" not in history.columns:
         return empty
-    if "outcome_method" not in history.columns or "outcome_status" not in history.columns:
-        return empty
-    valid = history[
-        (history["outcome_method"].astype(str) == "EXACT_3_CANDLE")
-        & history["outcome_status"].fillna("").astype(str).str.upper().isin(
-            ["CORRECT", "INCORRECT", "FLAT"]
-        )
-    ]
+    valid = exact_verified_history(history)
     lines = {}
     for cohort in ("PASSED", "BLOCKED"):
         group = valid[valid["mtf_cohort"].astype(str) == cohort]
@@ -1008,17 +1020,11 @@ def mtf_accuracy_summary(history):
 
 
 def accuracy_summary(history):
-    """Summarize completed directional observations; flats are not wins."""
+    """Summarize unique, verified exact-horizon observations; flats are not wins."""
     if history.empty or "outcome_status" not in history.columns:
         return {"completed": 0, "correct": 0, "incorrect": 0,
                 "flat": 0, "win_rate": None}
-
-    # Report only consistently measured exact three-candle outcomes.
-    if "outcome_method" not in history.columns:
-        history = history.iloc[0:0]
-    else:
-        history = history[history["outcome_method"].astype(str) == "EXACT_3_CANDLE"]
-
+    history = exact_verified_history(history)
     statuses = history["outcome_status"].fillna("").astype(str).str.upper()
     correct = int((statuses == "CORRECT").sum())
     incorrect = int((statuses == "INCORRECT").sum())
@@ -1032,8 +1038,6 @@ def accuracy_summary(history):
         "win_rate": (correct / decisive * 100) if decisive else None,
     }
 
-
-
 def accuracy_breakdown(history, group_col):
     """Return accuracy lines grouped by market or timeframe."""
     if (
@@ -1046,12 +1050,7 @@ def accuracy_breakdown(history, group_col):
     if "outcome_method" not in history.columns:
         return []
 
-    completed = history[
-        (history["outcome_method"].astype(str) == "EXACT_3_CANDLE")
-        & history["outcome_status"].fillna("").astype(str).str.upper().isin(
-            ["CORRECT", "INCORRECT", "FLAT"]
-        )
-    ]
+    completed = exact_verified_history(history)
     if completed.empty:
         return []
 
@@ -1075,12 +1074,13 @@ def accuracy_breakdown(history, group_col):
 
 
 def accuracy_integrity_summary(history):
-    """Reconcile exact-horizon totals against market/timeframe groups."""
+    """Audit exact-horizon counts, duplicate keys, and grouped status totals."""
     result = {
         "status": "OK", "warnings": [], "completed": 0,
         "correct": 0, "incorrect": 0, "flat": 0,
         "market_rows": 0, "timeframe_rows": 0,
-        "duplicate_keys": 0, "invalid_exact_status": 0,
+        "duplicate_keys": 0, "duplicate_rows_quarantined": 0,
+        "missing_keys": 0, "invalid_exact_status": 0,
     }
     if history.empty:
         return result
@@ -1093,33 +1093,48 @@ def accuracy_integrity_summary(history):
     exact_mask = history["outcome_method"].fillna("").astype(str).eq("EXACT_3_CANDLE")
     statuses = history["outcome_status"].fillna("").astype(str).str.upper()
     valid_status = statuses.isin(["CORRECT", "INCORRECT", "FLAT"])
-    exact = history[exact_mask & valid_status].copy()
-    invalid_exact = int((exact_mask & ~valid_status).sum())
+    exact_all = history[exact_mask & valid_status].copy()
+    result["invalid_exact_status"] = int((exact_mask & ~valid_status).sum())
 
+    keys = ["symbol", "timeframe", "signal_time"]
+    missing_key_mask = exact_all[keys].isna().any(axis=1)
+    duplicate_mask = exact_all.duplicated(subset=keys, keep=False)
+    result["missing_keys"] = int(missing_key_mask.sum())
+    result["duplicate_rows_quarantined"] = int(duplicate_mask.sum())
+    result["duplicate_keys"] = int(exact_all.loc[duplicate_mask, keys].drop_duplicates().shape[0])
+
+    exact = exact_verified_history(history)
     exact_statuses = exact["outcome_status"].fillna("").astype(str).str.upper()
     result["correct"] = int((exact_statuses == "CORRECT").sum())
     result["incorrect"] = int((exact_statuses == "INCORRECT").sum())
     result["flat"] = int((exact_statuses == "FLAT").sum())
     result["completed"] = len(exact)
-    result["invalid_exact_status"] = invalid_exact
-
-    keys = history[["symbol", "timeframe", "signal_time"]].astype(str)
-    result["duplicate_keys"] = int(keys.duplicated(keep=False).sum())
     result["market_rows"] = int(exact.groupby("symbol", dropna=False).size().sum())
     result["timeframe_rows"] = int(exact.groupby("timeframe", dropna=False).size().sum())
 
-    if result["market_rows"] != result["completed"]:
-        result["warnings"].append("Market breakdown does not reconcile with overall completed count")
-    if result["timeframe_rows"] != result["completed"]:
-        result["warnings"].append("Timeframe breakdown does not reconcile with overall completed count")
-    if invalid_exact:
-        result["warnings"].append(f"{invalid_exact} exact-horizon rows have invalid or pending outcome statuses")
+    expected = {"CORRECT": result["correct"], "INCORRECT": result["incorrect"], "FLAT": result["flat"]}
+    for group_col, label in (("symbol", "market"), ("timeframe", "timeframe")):
+        grouped = exact.assign(
+            _status=exact["outcome_status"].fillna("").astype(str).str.upper()
+        ).groupby([group_col, "_status"], dropna=False).size()
+        actual = {status: int(grouped.xs(status, level="_status").sum())
+                  if status in grouped.index.get_level_values("_status") else 0
+                  for status in expected}
+        if actual != expected:
+            result["warnings"].append(f"{label.title()} correct/incorrect/flat totals do not reconcile")
+
+    if result["invalid_exact_status"]:
+        result["warnings"].append(f"{result['invalid_exact_status']} exact-horizon rows have invalid or pending outcome statuses")
+    if result["missing_keys"]:
+        result["warnings"].append(f"{result['missing_keys']} exact-horizon rows have missing signal keys")
     if result["duplicate_keys"]:
-        result["warnings"].append(f"{result['duplicate_keys']} rows belong to duplicated symbol/timeframe/signal-time keys")
+        result["warnings"].append(
+            f"{result['duplicate_keys']} duplicate signal keys found; "
+            f"{result['duplicate_rows_quarantined']} rows excluded from accuracy"
+        )
     if result["warnings"]:
         result["status"] = "WARNING"
     return result
-
 
 
 def format_report(r, mtf_text="Not enough matching timeframe data"):
@@ -1355,7 +1370,7 @@ def main():
     integrity = accuracy_integrity_summary(history)
     integrity_warning_text = "; ".join(integrity["warnings"]) if integrity["warnings"] else "All totals reconcile; no duplicate keys detected"
     mtf_accuracy_text = "\n".join(mtf_accuracy.values())
-    mtf_diagnostics = mtf_diagnostic_summary(scan_results)
+    mtf_diagnostics = mtf_diagnostic_summary(pending_notifications)
     mtf_reason_text = (
         "\n".join(f"{reason}: {count}" for reason, count in sorted(mtf_diagnostics["reasons"].items()))
         if mtf_diagnostics["reasons"] else "No directional candidates"
