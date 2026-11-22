@@ -701,11 +701,18 @@ def format_report(r):
 
 
 def format_discord_report(r):
+    if r["signal"] == "BULLISH":
+        signal_display = "BUY 🟢"
+    elif r["signal"] == "BEARISH":
+        signal_display = "SELL 🔴"
+    else:
+        return None
+
     return (
         "**Punjab Market Scanner — Educational Update**\n\n"
         f"**Market:** {r['symbol']}\n"
         f"**Timeframe:** {r['timeframe']}\n"
-        f"**Market bias:** {r['direction']} (observation only)\n"
+        f"**Signal:** **{signal_display}** (observation only)\n"
         f"**Last completed candle:** {r['price']:.6f}\n\n"
         f"EMA 9: {r['ema9']:.6f}\n"
         f"EMA 21: {r['ema21']:.6f}\n"
@@ -792,10 +799,10 @@ def main():
                         if telegram(report):
                             telegram_sent += 1
 
-                        if discord(
-                            format_discord_report(result)
-                        ):
-                            discord_sent += 1
+                        discord_report = format_discord_report(result)
+                        if discord_report is not None:
+                            if discord(discord_report):
+                                discord_sent += 1
 
                 logging.info(
                     "%s %s: observation completed (new=%s)",
