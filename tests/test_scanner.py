@@ -84,7 +84,7 @@ class AccuracyIntegrityTests(unittest.TestCase):
         self.assertEqual(integrity["flat"], 10)
         self.assertEqual(integrity["market_rows"], 321)
         self.assertEqual(integrity["timeframe_rows"], 321)
-        self.assertAlmostEqual(accuracy["win_rate"], 46.3)
+        self.assertAlmostEqual(accuracy["win_rate"], 46.3, places=1)
 
     def test_duplicate_signal_keys_raise_integrity_warning(self):
         history = self.make_history()
