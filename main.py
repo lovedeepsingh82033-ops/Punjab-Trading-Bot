@@ -219,7 +219,27 @@ def discord(message):
         return False
 
 
-def fetch_candles(symbol, interval):
+def filter_completed_candles(df, interval, as_of):
+    """Keep only candles fully closed at one shared UTC scan cutoff."""
+    minutes = next(
+        (value[1] for value in TIMEFRAMES.values() if value[0] == interval),
+        None,
+    )
+    if minutes is None:
+        raise ValueError(f"Unsupported candle interval: {interval}")
+
+    cutoff = pd.Timestamp(as_of)
+    if cutoff.tzinfo is None:
+        cutoff = cutoff.tz_localize("UTC")
+    else:
+        cutoff = cutoff.tz_convert("UTC")
+
+    candle_times = pd.to_datetime(df["datetime"], utc=True, errors="coerce")
+    completed = candle_times + pd.Timedelta(minutes=minutes) <= cutoff
+    return df.loc[completed].reset_index(drop=True)
+
+
+def fetch_candles(symbol, interval, as_of=None):
     global API_RATE_LIMITED
 
     if not API_KEY:
@@ -338,18 +358,10 @@ def fetch_candles(symbol, interval):
                 )
             df = df.loc[valid_ohlc].reset_index(drop=True)
 
-            minutes = next(
-                v[1] for v in TIMEFRAMES.values()
-                if v[0] == interval
-            )
+            cutoff = as_of or datetime.now(timezone.utc)
+            df = filter_completed_candles(df, interval, cutoff)
 
-            now = datetime.now(timezone.utc)
-
-            df = df[
-                df["datetime"] + timedelta(minutes=minutes) <= now
-            ]
-
-            return df.reset_index(drop=True)
+            return df
 
         except RuntimeError:
             raise
@@ -563,8 +575,8 @@ def historical_backtest(df, horizon_bars=3):
             "avg_move_pct": float(values.mean()), "median_move_pct": float(np.median(values))}
 
 
-def analyze(symbol, timeframe, interval):
-    df = fetch_candles(symbol, interval)
+def analyze(symbol, timeframe, interval, as_of=None):
+    df = fetch_candles(symbol, interval, as_of=as_of)
 
     if len(df) < MIN_CANDLES:
         raise RuntimeError(
@@ -675,6 +687,13 @@ def analyze(symbol, timeframe, interval):
         "resistance": float(row["resistance"]),
         "candle_time": candle_time,
         "signal_time": row["datetime"].isoformat(),
+        "scan_cutoff": (
+            pd.Timestamp(as_of or datetime.now(timezone.utc))
+            .tz_convert("UTC").isoformat()
+            if pd.Timestamp(as_of or datetime.now(timezone.utc)).tzinfo
+            else pd.Timestamp(as_of or datetime.now(timezone.utc))
+            .tz_localize("UTC").isoformat()
+        ),
         "backtest": backtest,
         # In-memory candle series for exact-horizon history evaluation.
         # save_new_record writes explicit fields only, so this is not persisted.
@@ -1256,6 +1275,9 @@ def main():
         return
 
     history = load_history()
+    # Freeze the data boundary before the first API request. Every market and
+    # timeframe is evaluated only with candles closed by this same UTC instant.
+    scan_cutoff = datetime.now(timezone.utc)
 
     checked = 0
     new_records = 0
@@ -1284,7 +1306,7 @@ def main():
 
             try:
                 result = analyze(
-                    symbol, timeframe, interval
+                    symbol, timeframe, interval, as_of=scan_cutoff
                 )
 
                 checked += 1
