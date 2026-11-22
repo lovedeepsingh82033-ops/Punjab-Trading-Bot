@@ -145,6 +145,26 @@ class MTFTests(unittest.TestCase):
         self.assertFalse(decision["passed"])
         self.assertEqual(decision["reason"], "H1_OR_M30_ADX_BELOW_20")
 
+    def test_missing_or_non_numeric_anchor_adx_fails_closed(self):
+        for invalid in (None, "not-a-number"):
+            with self.subTest(invalid=invalid):
+                results = [item("M5", "BULLISH"), item("M15", "BULLISH"),
+                           item("M30", "BULLISH"), item("H1", "BULLISH")]
+                results[2]["adx"] = invalid
+                decision = main.mtf_decision(results[0], results)
+                self.assertFalse(decision["passed"])
+                self.assertEqual(decision["cohort"], "BLOCKED")
+                self.assertEqual(decision["reason"], "H1_OR_M30_ADX_BELOW_20")
+
+    def test_infinite_anchor_adx_fails_closed(self):
+        results = [item("M5", "BULLISH"), item("M15", "BULLISH"),
+                   item("M30", "BULLISH"), item("H1", "BULLISH")]
+        results[3]["adx"] = float("inf")
+        decision = main.mtf_decision(results[0], results)
+        self.assertFalse(decision["passed"])
+        self.assertEqual(decision["cohort"], "BLOCKED")
+        self.assertEqual(decision["reason"], "H1_OR_M30_ADX_BELOW_20")
+
     def test_mtf_diagnostics_count_candidates(self):
         results = [item("M5", "BULLISH"), item("M15", "NEUTRAL"),
                    item("M30", "BULLISH"), item("H1", "BULLISH")]
