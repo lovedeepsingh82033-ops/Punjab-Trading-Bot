@@ -44,6 +44,14 @@ class HistoricalBacktestSamplingTests(unittest.TestCase):
         self.assertEqual(result["overlap_policy"], "NON_OVERLAPPING_HORIZON")
         self.assertAlmostEqual(result["hit_rate"], 100.0)
 
+    def test_short_history_returns_empty_metrics(self):
+        result = main.historical_backtest(self.make_bullish_frame(count=20), horizon_bars=3)
+        self.assertEqual(result["samples"], 0)
+        self.assertIsNone(result["hit_rate"])
+        self.assertIsNone(result["avg_move_pct"])
+        self.assertIsNone(result["median_move_pct"])
+        self.assertEqual(result["overlap_policy"], "NON_OVERLAPPING_HORIZON")
+
     def test_invalid_horizon_is_rejected(self):
         for horizon in (0, -1, 1.5, True):
             with self.subTest(horizon=horizon):
