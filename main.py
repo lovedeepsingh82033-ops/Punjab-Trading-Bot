@@ -885,6 +885,17 @@ def save_new_record(result, history):
 def mtf_decision(result, same_market):
     """Strict MTF research gate; it is not a profitability guarantee."""
     direction = result["direction"]
+    expected_symbol = result["symbol"]
+    mixed_symbols = sorted({
+        str(item.get("symbol", ""))
+        for item in same_market
+        if item.get("symbol") != expected_symbol
+    })
+    # Never let another instrument's timeframe vote in this market's cohort.
+    same_market = [
+        item for item in same_market
+        if item.get("symbol") == expected_symbol
+    ]
     timeframe_names = [item["timeframe"] for item in same_market]
     by_timeframe = {item["timeframe"]: item for item in same_market}
     duplicate_timeframes = sorted(
@@ -906,10 +917,13 @@ def mtf_decision(result, same_market):
         set(by_timeframe) == expected_timeframes
         and len(timeframe_names) == len(expected_timeframes)
         and not duplicate_timeframes
+        and not mixed_symbols
     )
     passed = complete and votes >= 3 and h1_aligned and m30_aligned and anchors_strong
 
-    if duplicate_timeframes:
+    if mixed_symbols:
+        reason, cohort = "MIXED_SYMBOLS", "INCOMPLETE"
+    elif duplicate_timeframes:
         reason, cohort = "DUPLICATE_TIMEFRAMES", "INCOMPLETE"
     elif not complete:
         reason, cohort = "INCOMPLETE_TIMEFRAMES", "INCOMPLETE"
@@ -930,6 +944,7 @@ def mtf_decision(result, same_market):
         "m30_aligned": m30_aligned, "reason": reason,
         "missing_timeframes": sorted(expected_timeframes - set(by_timeframe)),
         "duplicate_timeframes": duplicate_timeframes,
+        "mixed_symbols": mixed_symbols,
     }
 
 
