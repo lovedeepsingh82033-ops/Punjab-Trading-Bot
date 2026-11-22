@@ -669,7 +669,7 @@ def save_new_record(result, history):
     return history, True
 
 
-def format_report(r):
+def format_report(r, mtf_text="Not enough matching timeframe data"):
     if r["signal"] == "BULLISH":
         signal_display = "BUY 🟢"
         signal_icon = "🟢"
@@ -692,10 +692,11 @@ def format_report(r):
         f"💰 Last completed price: <code>{r['price']:.6f}</code>\n"
         f"📉 RSI (14): <b>{r['rsi']:.2f}</b>\n"
         f"📊 ADX (14): <b>{r['adx']:.2f}</b>\n"
-        f"〽️ MACD histogram: <code>{r['macd_hist']:.6f}</code>\n\n"
+        f"〽️ MACD histogram: <code>{r['macd_hist']:.6f}</code>\n"
+        f"🧭 Timeframe agreement: <b>{mtf_text}</b>\n\n"
         f"🕒 Candle: {r['candle_time']}\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        '<a href="https://github.com/lovedeepsingh82033-ops/Punjab-Trading-Bot">📂 View Punjab Scanner on GitHub</a>\\n\\n'
+        '<a href="https://github.com/lovedeepsingh82033-ops/Punjab-Trading-Bot">📂 View Punjab Scanner on GitHub</a>\n\n'
         "<i>Educational market observation only. "
         "Not a trading instruction or prediction. "
         "Indicators can be wrong. No orders are placed.</i>"
@@ -762,6 +763,7 @@ def main():
     telegram_sent = 0
     discord_sent = 0
     errors = 0
+    pending_notifications = []
 
     telegram(
         "<b>Punjab Market Scanner Started</b>\n"
@@ -794,16 +796,8 @@ def main():
                     # Send only clear BUY/SELL observations.
                     # Neutral analyses remain in history but do not
                     # generate a Telegram or Discord signal message.
-                    report = format_report(result)
-
-                    if report is not None:
-                        if telegram(report):
-                            telegram_sent += 1
-
-                        discord_report = format_discord_report(result)
-                        if discord_report is not None:
-                            if discord(discord_report):
-                                discord_sent += 1
+                    if result["signal"] in ("BULLISH", "BEARISH"):
+                        pending_notifications.append(result)
 
                 logging.info(
                     "%s %s: observation completed (new=%s)",
@@ -832,6 +826,30 @@ def main():
             "Scan ended early because the Twelve Data API limit "
             "was reached."
         )
+
+    # Compare each signal with the other timeframes already scanned
+    # for the same market. This is descriptive confirmation, not a forecast.
+    for result in pending_notifications:
+        same_market = [
+            item for item in pending_notifications
+            if item["symbol"] == result["symbol"]
+        ]
+        same_direction = sum(
+            item["signal"] == result["signal"]
+            for item in same_market
+        )
+        mtf_text = (
+            f"{same_direction}/{len(TIMEFRAMES)} scanned timeframes "
+            f"show {('bullish' if result['signal'] == 'BULLISH' else 'bearish')} bias"
+        )
+
+        report = format_report(result, mtf_text)
+        if telegram(report):
+            telegram_sent += 1
+
+        discord_report = format_discord_report(result)
+        if discord_report is not None and discord(discord_report):
+            discord_sent += 1
 
     try:
         history.to_csv(HISTORY_FILE, index=False)
