@@ -608,6 +608,79 @@ def load_history():
         return pd.DataFrame()
 
 
+
+def evaluate_past_signals(current, history, horizon_bars=3):
+    """Close old observations after a fixed number of completed candles."""
+    if history.empty:
+        return history, 0, 0
+
+    required = [
+        "symbol", "timeframe", "signal", "signal_time", "price"
+    ]
+    if any(col not in history.columns for col in required):
+        return history, 0, 0
+
+    for col, default in [
+        ("outcome_status", "PENDING"),
+        ("outcome_pct", np.nan),
+        ("evaluated_at", ""),
+    ]:
+        if col not in history.columns:
+            history[col] = default
+
+    timeframe_minutes = TIMEFRAMES[current["timeframe"]][1]
+    now_candle = pd.to_datetime(current["signal_time"], utc=True)
+    updated = 0
+
+    mask = (
+        (history["symbol"].astype(str) == current["symbol"])
+        & (history["timeframe"].astype(str) == current["timeframe"])
+        & (history["signal"].astype(str).isin(["BULLISH", "BEARISH"]))
+        & (history["outcome_status"].astype(str) == "PENDING")
+    )
+
+    for idx in history.index[mask]:
+        signal_time = pd.to_datetime(
+            history.at[idx, "signal_time"], utc=True, errors="coerce"
+        )
+        if pd.isna(signal_time):
+            continue
+
+        elapsed_minutes = (now_candle - signal_time).total_seconds() / 60
+        elapsed_bars = int(elapsed_minutes // timeframe_minutes)
+
+        if elapsed_bars < horizon_bars:
+            continue
+
+        entry = float(history.at[idx, "price"])
+        exit_price = float(current["price"])
+        if not np.isfinite(entry) or entry <= 0:
+            continue
+
+        direction = str(history.at[idx, "signal"])
+        raw_change = (exit_price - entry) / entry * 100
+        directional_change = raw_change if direction == "BULLISH" else -raw_change
+
+        if directional_change > 0:
+            status = "CORRECT"
+        elif directional_change < 0:
+            status = "INCORRECT"
+        else:
+            status = "FLAT"
+
+        history.at[idx, "outcome_status"] = status
+        history.at[idx, "outcome_pct"] = round(directional_change, 6)
+        history.at[idx, "evaluated_at"] = now_candle.isoformat()
+        updated += 1
+
+    completed = history[
+        history["outcome_status"].astype(str).isin(
+            ["CORRECT", "INCORRECT", "FLAT"]
+        )
+    ]
+    correct = int((completed["outcome_status"] == "CORRECT").sum())
+    return history, updated, correct
+
 def save_new_record(result, history):
     key = (
         result["symbol"],
@@ -765,6 +838,8 @@ def main():
     errors = 0
     pending_notifications = []
     scan_results = []
+    outcomes_evaluated = 0
+    correct_observations = 0
 
     telegram(
         "<b>Punjab Market Scanner Started</b>\n"
@@ -787,6 +862,12 @@ def main():
 
                 checked += 1
                 scan_results.append(result)
+
+                history, evaluated_now, correct_now = evaluate_past_signals(
+                    result, history, horizon_bars=3
+                )
+                outcomes_evaluated += evaluated_now
+                correct_observations = correct_now
 
                 history, is_new = save_new_record(
                     result, history
@@ -869,7 +950,9 @@ def main():
         f"New history records: {new_records}\n"
         f"Telegram updates sent: {telegram_sent}\n"
         f"Discord updates sent: {discord_sent}\n"
-        f"Data/processing issues: {errors}\n\n"
+        f"Data/processing issues: {errors}\n"
+        f"Past observations evaluated this scan: {outcomes_evaluated}\n"
+        f"Correct directional observations recorded: {correct_observations}\n\n"
         "<i>Historical records are observations, "
         "not verified profitable trades. "
         "No orders were placed.</i>"
