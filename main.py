@@ -111,9 +111,7 @@ def telegram(message, reply_markup=None):
     try:
         response = session.post(
             url,
-            data={
-                **payload,
-            },
+            json=payload,
             timeout=25,
         )
         response.raise_for_status()
