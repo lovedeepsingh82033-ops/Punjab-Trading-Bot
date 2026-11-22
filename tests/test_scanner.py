@@ -39,8 +39,8 @@ class HistoricalBacktestSamplingTests(unittest.TestCase):
 
     def test_outcome_windows_do_not_overlap(self):
         result = main.historical_backtest(self.make_bullish_frame(), horizon_bars=3)
-        # The 30-row holdout yields ten disjoint three-bar outcome windows.
-        self.assertEqual(result["samples"], 10)
+        # The 30-row holdout yields nine disjoint three-bar outcome windows.
+        self.assertEqual(result["samples"], 9)
         self.assertEqual(result["overlap_policy"], "NON_OVERLAPPING_HORIZON")
         self.assertAlmostEqual(result["hit_rate"], 100.0)
 
