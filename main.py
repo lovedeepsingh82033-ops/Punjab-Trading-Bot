@@ -528,11 +528,19 @@ def historical_backtest(df, horizon_bars=3):
     The first 70% is reserved as history; only the final 30% is scored.
     This measures directional movement, not net profit or future certainty.
     """
+    if not isinstance(horizon_bars, int) or isinstance(horizon_bars, bool) or horizon_bars < 1:
+        raise ValueError("horizon_bars must be a positive integer")
+
     observations = []
     required = ["ema9", "ema21", "ema50", "rsi", "macd", "macd_signal",
                 "macd_hist", "adx", "plus_di", "minus_di"]
     test_start = max(50, int(len(df) * 0.70))
+    next_eligible_index = test_start
     for i in range(test_start, len(df) - horizon_bars):
+        # Keep scored outcome windows disjoint: after selecting a signal,
+        # skip the next horizon_bars possible entry candles.
+        if i < next_eligible_index:
+            continue
         row = df.iloc[i]
         if any(pd.isna(row[key]) for key in required):
             continue
@@ -556,11 +564,21 @@ def historical_backtest(df, horizon_bars=3):
             continue
         move = (future - entry) / entry * 100
         observations.append(move if direction == "BULLISH" else -move)
+        next_eligible_index = i + horizon_bars
+
     if not observations:
-        return {"samples": 0, "hit_rate": None, "avg_move_pct": None, "median_move_pct": None}
+        return {
+            "samples": 0, "hit_rate": None, "avg_move_pct": None,
+            "median_move_pct": None, "overlap_policy": "NON_OVERLAPPING_HORIZON",
+        }
     values = np.asarray(observations, dtype=float)
-    return {"samples": len(values), "hit_rate": float((values > 0).mean() * 100),
-            "avg_move_pct": float(values.mean()), "median_move_pct": float(np.median(values))}
+    return {
+        "samples": len(values),
+        "hit_rate": float((values > 0).mean() * 100),
+        "avg_move_pct": float(values.mean()),
+        "median_move_pct": float(np.median(values)),
+        "overlap_policy": "NON_OVERLAPPING_HORIZON",
+    }
 
 
 def analyze(symbol, timeframe, interval, as_of=None):
