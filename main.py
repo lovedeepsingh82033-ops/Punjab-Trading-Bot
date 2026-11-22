@@ -119,10 +119,8 @@ def telegram(message, reply_markup=None):
         result = response.json()
 
         if not result.get("ok"):
-            logging.error(
-                "Telegram rejected the message: %s",
-                result.get("description", result)
-            )
+            # Do not log API-provided descriptions or response payloads.
+            logging.error("Telegram API rejected the message (ok=false).")
             return False
 
         return True
