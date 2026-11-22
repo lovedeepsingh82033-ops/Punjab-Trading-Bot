@@ -1267,13 +1267,19 @@ def accuracy_integrity_summary(history):
     result["invalid_exact_status"] = int((exact_mask & ~valid_status).sum())
 
     keys = ["symbol", "timeframe", "signal_time"]
-    missing_key_mask = exact_all[keys].isna().any(axis=1) | exact_all[keys].apply(
-        lambda column: column.astype(str).str.strip().eq("")
-    ).any(axis=1)
-    duplicate_mask = exact_all.duplicated(subset=keys, keep=False)
+    normalized_keys = exact_all[keys].copy()
+    normalized_keys["signal_time"] = normalized_keys["signal_time"].map(
+        canonical_utc_timestamp
+    )
+    missing_key_mask = (
+        normalized_keys.isna().any(axis=1)
+        | normalized_keys["symbol"].astype(str).str.strip().eq("")
+        | normalized_keys["timeframe"].astype(str).str.strip().eq("")
+    )
+    duplicate_mask = normalized_keys.duplicated(keep=False)
     result["missing_keys"] = int(missing_key_mask.sum())
     result["duplicate_rows_quarantined"] = int(duplicate_mask.sum())
-    result["duplicate_keys"] = int(exact_all.loc[duplicate_mask, keys].drop_duplicates().shape[0])
+    result["duplicate_keys"] = int(normalized_keys.loc[duplicate_mask].drop_duplicates().shape[0])
 
     exact = exact_verified_history(history)
     exact_statuses = exact["outcome_status"].fillna("").astype(str).str.upper()
