@@ -1091,8 +1091,8 @@ def main():
     )
     market_accuracy = accuracy_breakdown(history, "symbol")
     timeframe_accuracy = accuracy_breakdown(history, "timeframe")
-    market_lines = "\\n".join(market_accuracy) if market_accuracy else "Not available yet"
-    timeframe_lines = "\\n".join(timeframe_accuracy) if timeframe_accuracy else "Not available yet"
+    market_lines = "\n".join(market_accuracy) if market_accuracy else "Not available yet"
+    timeframe_lines = "\n".join(timeframe_accuracy) if timeframe_accuracy else "Not available yet"
 
     tested = [x for x in backtest_results if x["samples"] > 0]
     tested.sort(key=lambda x: x["avg_move_pct"], reverse=True)
@@ -1124,8 +1124,8 @@ def main():
         f"{market_lines}\n\n"
         "<b>Accuracy by Timeframe</b>\n"
         f"{timeframe_lines}\n\n"
-        "<b>Historical Rule Test (exact 3-candle horizon)</b>\\n"
-        f"{backtest_text}\\n\\n"
+        "<b>Historical Rule Test (exact 3-candle horizon)</b>\n"
+        f"{backtest_text}\n\n"
         "<i>Hit rate = correct / (correct + incorrect); "
         "flat outcomes are excluded. Historical observations are not "
         "verified profitable trades. No orders were placed.</i>"
@@ -1153,7 +1153,7 @@ def main():
         f"{market_lines}\n\n"
         "**Accuracy by Timeframe**\n"
         f"{timeframe_lines}\n\n"
-        "**Historical Rule Test (exact 3-candle horizon)**\\n"
+        "**Historical Rule Test (exact 3-candle horizon)**\n"
         f"{backtest_text}\\n\\n"
         "*Hit rate excludes flat outcomes. Historical observations are not "
         "verified profitable trades. No orders were placed.*"
