@@ -1401,7 +1401,8 @@ def main():
     integrity = accuracy_integrity_summary(history)
     integrity_warning_text = "; ".join(integrity["warnings"]) if integrity["warnings"] else "All totals reconcile; no duplicate keys detected"
     mtf_accuracy_text = "\n".join(mtf_accuracy.values())
-    mtf_diagnostics = mtf_diagnostic_summary(pending_notifications)
+    # Diagnostics must use the full scan (including neutral frames), not only new alerts.
+    mtf_diagnostics = mtf_diagnostic_summary(scan_results)
     mtf_reason_text = (
         "\n".join(f"{reason}: {count}" for reason, count in sorted(mtf_diagnostics["reasons"].items()))
         if mtf_diagnostics["reasons"] else "No directional candidates"
