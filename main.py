@@ -717,8 +717,18 @@ def evaluate_past_signals(current, history, horizon_bars=3):
     mask = (
         (history["symbol"].astype(str) == current["symbol"])
         & (history["timeframe"].astype(str) == current["timeframe"])
-        & (history["signal"].astype(str).isin(["BULLISH", "BEARISH"]))
-        & (history["outcome_status"].astype(str) == "PENDING")
+        & (
+            history.get(
+                "direction",
+                history["signal"]
+            ).fillna("").astype(str).str.upper().replace({
+                "BUY": "BULLISH",
+                "BUY ANALYSIS": "BULLISH",
+                "SELL": "BEARISH",
+                "SELL ANALYSIS": "BEARISH",
+            }).isin(["BULLISH", "BEARISH"])
+        )
+        & (history["outcome_status"].astype(str).str.upper() == "PENDING")
     )
 
     for idx in history.index[mask]:
@@ -739,7 +749,17 @@ def evaluate_past_signals(current, history, horizon_bars=3):
         if not np.isfinite(entry) or entry <= 0:
             continue
 
-        direction = str(history.at[idx, "signal"])
+        direction_value = (
+            history.at[idx, "direction"]
+            if "direction" in history.columns
+            else history.at[idx, "signal"]
+        )
+        direction = str(direction_value).upper()
+        if direction in ("BUY", "BUY ANALYSIS"):
+            direction = "BULLISH"
+        elif direction in ("SELL", "SELL ANALYSIS"):
+            direction = "BEARISH"
+
         raw_change = (exit_price - entry) / entry * 100
         directional_change = raw_change if direction == "BULLISH" else -raw_change
 
