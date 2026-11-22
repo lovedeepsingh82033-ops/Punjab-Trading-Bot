@@ -97,14 +97,24 @@ def handle_message(message):
         )
 
 
-def main():
-    logging.info("Telegram command bot started.")
+def get_initial_offset():
+    """Fetch the initial update offset without exposing token-bearing request URLs."""
+    try:
+        updates = get_updates()
+    except requests.RequestException as exc:
+        log_safe_error("Telegram startup connection failed", exc)
+        time.sleep(5)
+        return None
 
-    updates = get_updates()
-    offset = max(
+    return max(
         (item["update_id"] for item in updates),
         default=0
     ) + 1
+
+
+def main():
+    logging.info("Telegram command bot started.")
+    offset = get_initial_offset()
 
     while True:
         try:
