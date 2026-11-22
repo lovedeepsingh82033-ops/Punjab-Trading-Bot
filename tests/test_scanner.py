@@ -247,6 +247,84 @@ class AccuracyIntegrityTests(unittest.TestCase):
         self.assertEqual(integrity["incorrect"], 167)
 
 
+class MTFCohortHistoryTests(unittest.TestCase):
+    def make_history_row(self, cohort, signal_time, status="PENDING",
+                         method="", symbol="EUR/USD", timeframe="M5"):
+        return {
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "signal_time": signal_time,
+            "direction": "BULLISH",
+            "mtf_cohort": cohort,
+            "outcome_method": method,
+            "outcome_status": status,
+        }
+
+    def test_first_mtf_cohort_assignment_is_frozen(self):
+        result = item("M5", "BULLISH")
+        history = pd.DataFrame([{
+            "symbol": "EUR/USD",
+            "timeframe": "M5",
+            "signal_time": result["signal_time"],
+            "mtf_cohort": "UNASSESSED",
+        }])
+        first_scan = [
+            item("M5", "BULLISH"), item("M15", "BULLISH"),
+            item("M30", "BULLISH"), item("H1", "BULLISH"),
+        ]
+        history = main.label_mtf_cohorts(first_scan, history)
+        self.assertEqual(history.loc[0, "mtf_cohort"], "PASSED")
+
+        later_scan = [
+            item("M5", "BULLISH"), item("M15", "BEARISH"),
+            item("M30", "BEARISH"), item("H1", "BEARISH"),
+        ]
+        history = main.label_mtf_cohorts(later_scan, history)
+        self.assertEqual(history.loc[0, "mtf_cohort"], "PASSED")
+
+    def test_mtf_accuracy_counts_only_unique_matured_exact_rows(self):
+        rows = [
+            self.make_history_row("PASSED", "2026-11-22T10:00:00Z",
+                                  "CORRECT", "EXACT_3_CANDLE"),
+            self.make_history_row("PASSED", "2026-11-22T10:05:00Z",
+                                  "INCORRECT", "EXACT_3_CANDLE"),
+            self.make_history_row("PASSED", "2026-11-22T10:10:00Z",
+                                  "FLAT", "EXACT_3_CANDLE"),
+            self.make_history_row("BLOCKED", "2026-11-22T10:15:00Z",
+                                  "INCORRECT", "EXACT_3_CANDLE"),
+            self.make_history_row("BLOCKED", "2026-11-22T10:20:00Z",
+                                  "CORRECT", "LEGACY"),
+            self.make_history_row("PASSED", "2026-11-22T10:25:00Z",
+                                  "PENDING", ""),
+            self.make_history_row("PASSED", "2026-11-22T10:30:00Z",
+                                  "CORRECT", "EXACT_3_CANDLE"),
+            self.make_history_row("PASSED", "2026-11-22T10:30:00Z",
+                                  "INCORRECT", "EXACT_3_CANDLE"),
+        ]
+        summary = main.mtf_accuracy_summary(pd.DataFrame(rows))
+        self.assertEqual(
+            summary["PASSED"],
+            "PASSED: 3 matured; 1 correct / 1 incorrect / 1 flat; hit rate 50.0%",
+        )
+        self.assertEqual(
+            summary["BLOCKED"],
+            "BLOCKED: 1 matured; 0 correct / 1 incorrect / 0 flat; hit rate 0.0%",
+        )
+
+    def test_legacy_or_unassigned_cohorts_do_not_enter_mtf_accuracy(self):
+        rows = [
+            self.make_history_row("LEGACY_UNKNOWN", "2026-11-22T10:00:00Z",
+                                  "CORRECT", "EXACT_3_CANDLE"),
+            self.make_history_row("UNASSESSED", "2026-11-22T10:05:00Z",
+                                  "INCORRECT", "EXACT_3_CANDLE"),
+        ]
+        summary = main.mtf_accuracy_summary(pd.DataFrame(rows))
+        self.assertEqual(summary["PASSED"],
+                         "PASSED: 0 matured; 0 correct / 0 incorrect / 0 flat; hit rate not available")
+        self.assertEqual(summary["BLOCKED"],
+                         "BLOCKED: 0 matured; 0 correct / 0 incorrect / 0 flat; hit rate not available")
+
+
 
 if __name__ == "__main__":
     unittest.main()
