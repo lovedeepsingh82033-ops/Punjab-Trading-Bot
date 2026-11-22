@@ -17,6 +17,7 @@ API_KEY = os.getenv("TWELVE_DATA_API_KEY", "").strip()
 
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "").strip()
 DISCORD_CHANNEL_ID = os.getenv("DISCORD_CHANNEL_ID", "").strip()
+DISCORD_ACCESS_BLOCKED = False
 
 SYMBOLS = [
     "EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD",
@@ -137,6 +138,11 @@ def telegram(message, reply_markup=None):
 
 
 def discord(message):
+    global DISCORD_ACCESS_BLOCKED
+
+    if DISCORD_ACCESS_BLOCKED:
+        return False
+
     if not DISCORD_TOKEN or not DISCORD_CHANNEL_ID:
         logging.warning("Discord secrets are missing.")
         return False
@@ -156,6 +162,44 @@ def discord(message):
             json={"content": message},
             timeout=25,
         )
+
+        if response.status_code == 403:
+            DISCORD_ACCESS_BLOCKED = True
+            logging.error(
+                "Discord access denied (403 / Missing Access). "
+                "Discord notifications are disabled for the rest "
+                "of this run. Check that the bot is in the server, "
+                "the channel ID is correct, and the bot has View "
+                "Channel and Send Messages permissions."
+            )
+            return False
+
+        if response.status_code == 429:
+            retry_after = 1.0
+            try:
+                retry_after = max(
+                    0.5,
+                    float(response.json().get("retry_after", 1.0))
+                )
+            except (ValueError, TypeError):
+                pass
+
+            logging.warning(
+                "Discord rate limit reached. Waiting %.2f seconds "
+                "before one retry.",
+                retry_after
+            )
+            time.sleep(min(retry_after, 5.0))
+            response = session.post(
+                url,
+                headers={
+                    "Authorization": f"Bot {DISCORD_TOKEN}",
+                    "Content-Type": "application/json",
+                },
+                json={"content": message},
+                timeout=25,
+            )
+
         response.raise_for_status()
         return True
 
@@ -169,7 +213,7 @@ def discord(message):
             )
             logging.error(
                 "Discord response body: %s",
-                exc.response.text
+                exc.response.text[:500]
             )
 
         return False
