@@ -239,6 +239,15 @@ def filter_completed_candles(df, interval, as_of):
     return df.loc[completed].reset_index(drop=True)
 
 
+def safe_request_error(exc):
+    """Describe request failures without exposing URLs or query-string secrets."""
+    status_code = getattr(getattr(exc, "response", None), "status_code", None)
+    description = type(exc).__name__
+    if status_code is not None:
+        description += f" (HTTP {status_code})"
+    return description
+
+
 def fetch_candles(symbol, interval, as_of=None):
     global API_RATE_LIMITED
 
@@ -391,13 +400,13 @@ def fetch_candles(symbol, interval, as_of=None):
                     symbol,
                     interval,
                     wait_seconds,
-                    exc
+                    safe_request_error(exc)
                 )
 
                 time.sleep(wait_seconds)
 
     raise RuntimeError(
-        f"Could not fetch {symbol}: {last_error}"
+        f"Could not fetch {symbol}: {safe_request_error(last_error)}"
     )
 
 
