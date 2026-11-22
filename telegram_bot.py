@@ -5,6 +5,7 @@ import logging
 import requests
 
 TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
+CHAT_ID = os.getenv("CHAT_ID", "").strip()
 
 if not TOKEN:
     raise RuntimeError("TELEGRAM_TOKEN is missing.")
@@ -52,11 +53,16 @@ def send_message(chat_id, message):
     response.raise_for_status()
 
 
+def is_authorized_chat(chat_id, allowed_chat_id=CHAT_ID):
+    """Fail closed unless the incoming chat matches the configured allowlist."""
+    return bool(allowed_chat_id) and str(chat_id) == str(allowed_chat_id)
+
+
 def handle_message(message):
     chat = message.get("chat", {})
     chat_id = chat.get("id")
 
-    if not chat_id:
+    if not is_authorized_chat(chat_id):
         return
 
     command = message.get("text", "").strip().split("@")[0].lower()
