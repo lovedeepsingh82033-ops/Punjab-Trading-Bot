@@ -92,6 +92,7 @@ class AccuracyIntegrityTests(unittest.TestCase):
         integrity = main.accuracy_integrity_summary(history)
         self.assertEqual(integrity["status"], "WARNING")
         self.assertEqual(integrity["duplicate_keys"], 2)
+        self.assertEqual(main.accuracy_summary(history)["completed"], 320)
 
     def test_invalid_exact_outcome_is_reported_not_counted(self):
         history = self.make_history()
