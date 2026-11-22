@@ -45,7 +45,12 @@ class HistoricalBacktestSamplingTests(unittest.TestCase):
         self.assertEqual(result["overlap_policy"], "NON_OVERLAPPING_HORIZON")
         self.assertEqual(result["entry_policy"], "NEXT_CANDLE_OPEN_TO_HORIZON_CLOSE")
         # Signal at index 70 closes before entry at index 71 open (171.5).
+        # The horizon close is index 73 close (173.0), so the measured
+        # directional move must use (173.0 - 171.5) / 171.5, not close-to-close.
+        expected_move = (173.0 - 171.5) / 171.5 * 100
         self.assertAlmostEqual(result["hit_rate"], 100.0)
+        self.assertAlmostEqual(result["avg_move_pct"], expected_move)
+        self.assertAlmostEqual(result["median_move_pct"], expected_move)
 
     def test_short_history_returns_empty_metrics(self):
         result = main.historical_backtest(self.make_bullish_frame(count=20), horizon_bars=3)
