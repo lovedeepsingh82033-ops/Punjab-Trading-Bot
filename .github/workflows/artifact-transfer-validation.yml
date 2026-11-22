@@ -32,7 +32,7 @@ jobs:
         run: rm -rf validation
 
       - name: Download synthetic artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: synthetic-history-validation
           path: downloaded
