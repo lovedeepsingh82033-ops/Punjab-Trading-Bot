@@ -32,7 +32,7 @@ TIMEFRAMES = {
 }
 
 # Fetch extra candles because the newest API candle may still be open.
-OUTPUT_SIZE = 120
+OUTPUT_SIZE = 500
 MIN_CANDLES = 100
 HISTORY_FILE = "signal_history.csv"
 API_URL = "https://api.twelvedata.com/time_series"
@@ -682,6 +682,20 @@ def analyze(symbol, timeframe, interval):
     }
 
 
+def atomic_save_history(history, path=HISTORY_FILE):
+    """Persist history atomically so interrupted writes do not truncate it."""
+    temporary_path = f"{path}.tmp"
+    try:
+        history.to_csv(temporary_path, index=False)
+        os.replace(temporary_path, path)
+    finally:
+        if os.path.exists(temporary_path):
+            try:
+                os.remove(temporary_path)
+            except OSError:
+                logging.warning("Could not remove temporary history file: %s", temporary_path)
+
+
 def load_history():
     if not os.path.exists(HISTORY_FILE):
         return pd.DataFrame()
@@ -862,7 +876,7 @@ def save_new_record(result, history):
         keep="first"
     )
 
-    history.to_csv(HISTORY_FILE, index=False)
+    atomic_save_history(history)
 
     return history, True
 
@@ -1272,7 +1286,7 @@ def main():
     )
 
     try:
-        history.to_csv(HISTORY_FILE, index=False)
+        atomic_save_history(history)
 
     except OSError:
         logging.exception("Could not save history.")
@@ -1331,7 +1345,7 @@ def main():
         f"{market_lines}\n\n"
         "<b>Accuracy by Timeframe</b>\n"
         f"{timeframe_lines}\n\n"
-        "<b>Base-rule Out-of-Sample Test (not MTF-filtered; final 30%, exact 3-candle horizon)</b>\n"
+        "<b>Base-rule Rolling Holdout Sample (not MTF-filtered; final 30%, exact 3-candle horizon)</b>\n"
         f"{backtest_text}\n\n"
         "<i>Accuracy includes only observations evaluated at exactly "
         "the third subsequent completed candle. Older variable-horizon "
@@ -1367,7 +1381,7 @@ def main():
         f"{market_lines}\n\n"
         "**Accuracy by Timeframe**\n"
         f"{timeframe_lines}\n\n"
-        "**Base-rule Out-of-Sample Test (not MTF-filtered; final 30%, exact 3-candle horizon)**\n"
+        "**Base-rule Rolling Holdout Sample (not MTF-filtered; final 30%, exact 3-candle horizon)**\n"
         f"{backtest_text}\n\n"
         "*Accuracy includes only exact third-candle evaluations. Older "
         "variable-horizon results are excluded. Hit rate excludes flats. "
