@@ -742,6 +742,27 @@ def save_new_record(result, history):
     return history, True
 
 
+
+def accuracy_summary(history):
+    """Summarize completed directional observations; flats are not wins."""
+    if history.empty or "outcome_status" not in history.columns:
+        return {"completed": 0, "correct": 0, "incorrect": 0,
+                "flat": 0, "win_rate": None}
+
+    statuses = history["outcome_status"].fillna("").astype(str).str.upper()
+    correct = int((statuses == "CORRECT").sum())
+    incorrect = int((statuses == "INCORRECT").sum())
+    flat = int((statuses == "FLAT").sum())
+    decisive = correct + incorrect
+    return {
+        "completed": decisive + flat,
+        "correct": correct,
+        "incorrect": incorrect,
+        "flat": flat,
+        "win_rate": (correct / decisive * 100) if decisive else None,
+    }
+
+
 def format_report(r, mtf_text="Not enough matching timeframe data"):
     if r["signal"] == "BULLISH":
         signal_display = "BUY 🟢"
@@ -942,34 +963,54 @@ def main():
         logging.exception("Could not save history.")
         errors += 1
 
+    accuracy = accuracy_summary(history)
+    win_rate_text = (
+        f"{accuracy['win_rate']:.1f}%"
+        if accuracy["win_rate"] is not None
+        else "Not available yet"
+    )
+
     summary = (
-        "<b>Punjab Scan Complete</b>\n\n"
-        f"Markets: {len(SYMBOLS)}\n"
-        f"Timeframes per market: {len(TIMEFRAMES)}\n"
-        f"Analyses completed: {checked}\n"
-        f"New history records: {new_records}\n"
-        f"Telegram updates sent: {telegram_sent}\n"
-        f"Discord updates sent: {discord_sent}\n"
-        f"Data/processing issues: {errors}\n"
-        f"Past observations evaluated this scan: {outcomes_evaluated}\n"
-        f"Correct directional observations recorded: {correct_observations}\n\n"
-        "<i>Historical records are observations, "
-        "not verified profitable trades. "
-        "No orders were placed.</i>"
+        "<b>Punjab Scan Complete</b>\\n\\n"
+        f"Markets: {len(SYMBOLS)}\\n"
+        f"Timeframes per market: {len(TIMEFRAMES)}\\n"
+        f"Analyses completed: {checked}\\n"
+        f"New history records: {new_records}\\n"
+        f"Telegram updates sent: {telegram_sent}\\n"
+        f"Discord updates sent: {discord_sent}\\n"
+        f"Data/processing issues: {errors}\\n"
+        f"Past observations evaluated this scan: {outcomes_evaluated}\\n\\n"
+        "<b>Historical Directional Accuracy</b>\\n"
+        f"Completed observations: {accuracy['completed']}\\n"
+        f"Correct: {accuracy['correct']}\\n"
+        f"Incorrect: {accuracy['incorrect']}\\n"
+        f"Flat: {accuracy['flat']}\\n"
+        f"Directional hit rate: {win_rate_text}\\n\\n"
+        "<i>Hit rate = correct / (correct + incorrect); "
+        "flat outcomes are excluded. Historical observations are not "
+        "verified profitable trades. No orders were placed.</i>"
     )
 
     telegram(summary)
 
     discord(
-        "**Punjab Scan Complete**\n\n"
-        f"Markets: {len(SYMBOLS)}\n"
-        f"Timeframes per market: {len(TIMEFRAMES)}\n"
-        f"Analyses completed: {checked}\n"
-        f"New history records: {new_records}\n"
-        f"Telegram updates sent: {telegram_sent}\n"
-        f"Discord updates sent: {discord_sent}\n"
-        f"Data/processing issues: {errors}\n\n"
-        "Educational observations only. No orders placed."
+        "**Punjab Scan Complete**\\n\\n"
+        f"Markets: {len(SYMBOLS)}\\n"
+        f"Timeframes per market: {len(TIMEFRAMES)}\\n"
+        f"Analyses completed: {checked}\\n"
+        f"New history records: {new_records}\\n"
+        f"Telegram updates sent: {telegram_sent}\\n"
+        f"Discord updates sent: {discord_sent}\\n"
+        f"Data/processing issues: {errors}\\n"
+        f"Past observations evaluated this scan: {outcomes_evaluated}\\n\\n"
+        "**Historical Directional Accuracy**\\n"
+        f"Completed observations: {accuracy['completed']}\\n"
+        f"Correct: {accuracy['correct']}\\n"
+        f"Incorrect: {accuracy['incorrect']}\\n"
+        f"Flat: {accuracy['flat']}\\n"
+        f"Directional hit rate: {win_rate_text}\\n\\n"
+        "*Hit rate excludes flat outcomes. Historical observations are not "
+        "verified profitable trades. No orders were placed.*"
     )
 
 
