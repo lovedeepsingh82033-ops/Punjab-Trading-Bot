@@ -17,6 +17,11 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
+def log_safe_error(context, exc):
+    """Log only the exception type; request URLs may contain the bot token."""
+    logging.error("%s: %s", context, type(exc).__name__)
+
+
 def get_updates(offset=None):
     params = {
         "timeout": 25,
@@ -112,12 +117,12 @@ def main():
                 if message:
                     handle_message(message)
 
-        except requests.RequestException:
-            logging.exception("Telegram connection error.")
+        except requests.RequestException as exc:
+            log_safe_error("Telegram connection failed", exc)
             time.sleep(5)
 
-        except Exception:
-            logging.exception("Unexpected bot error.")
+        except Exception as exc:
+            log_safe_error("Unexpected bot error", exc)
             time.sleep(5)
 
 
