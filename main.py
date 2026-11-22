@@ -763,6 +763,42 @@ def accuracy_summary(history):
     }
 
 
+
+def accuracy_breakdown(history, group_col):
+    """Return accuracy lines grouped by market or timeframe."""
+    if (
+        history.empty
+        or group_col not in history.columns
+        or "outcome_status" not in history.columns
+    ):
+        return []
+
+    completed = history[
+        history["outcome_status"].fillna("").astype(str).str.upper().isin(
+            ["CORRECT", "INCORRECT", "FLAT"]
+        )
+    ]
+    if completed.empty:
+        return []
+
+    lines = []
+    for name, group in completed.groupby(group_col):
+        statuses = group["outcome_status"].fillna("").astype(str).str.upper()
+        correct = int((statuses == "CORRECT").sum())
+        incorrect = int((statuses == "INCORRECT").sum())
+        flat = int((statuses == "FLAT").sum())
+        decisive = correct + incorrect
+        if decisive:
+            rate = correct / decisive * 100
+            lines.append(
+                f"{name}: {rate:.1f}% ({correct} correct / "
+                f"{incorrect} incorrect; {flat} flat)"
+            )
+        else:
+            lines.append(f"{name}: no decisive results yet ({flat} flat)")
+    return lines
+
+
 def format_report(r, mtf_text="Not enough matching timeframe data"):
     if r["signal"] == "BULLISH":
         signal_display = "BUY 🟢"
@@ -969,23 +1005,31 @@ def main():
         if accuracy["win_rate"] is not None
         else "Not available yet"
     )
+    market_accuracy = accuracy_breakdown(history, "symbol")
+    timeframe_accuracy = accuracy_breakdown(history, "timeframe")
+    market_lines = "\\n".join(market_accuracy) if market_accuracy else "Not available yet"
+    timeframe_lines = "\\n".join(timeframe_accuracy) if timeframe_accuracy else "Not available yet"
 
     summary = (
-        "<b>Punjab Scan Complete</b>\\n\\n"
-        f"Markets: {len(SYMBOLS)}\\n"
-        f"Timeframes per market: {len(TIMEFRAMES)}\\n"
-        f"Analyses completed: {checked}\\n"
-        f"New history records: {new_records}\\n"
-        f"Telegram updates sent: {telegram_sent}\\n"
-        f"Discord updates sent: {discord_sent}\\n"
-        f"Data/processing issues: {errors}\\n"
-        f"Past observations evaluated this scan: {outcomes_evaluated}\\n\\n"
-        "<b>Historical Directional Accuracy</b>\\n"
-        f"Completed observations: {accuracy['completed']}\\n"
-        f"Correct: {accuracy['correct']}\\n"
-        f"Incorrect: {accuracy['incorrect']}\\n"
-        f"Flat: {accuracy['flat']}\\n"
-        f"Directional hit rate: {win_rate_text}\\n\\n"
+        "<b>Punjab Scan Complete</b>\n\n"
+        f"Markets: {len(SYMBOLS)}\n"
+        f"Timeframes per market: {len(TIMEFRAMES)}\n"
+        f"Analyses completed: {checked}\n"
+        f"New history records: {new_records}\n"
+        f"Telegram updates sent: {telegram_sent}\n"
+        f"Discord updates sent: {discord_sent}\n"
+        f"Data/processing issues: {errors}\n"
+        f"Past observations evaluated this scan: {outcomes_evaluated}\n\n"
+        "<b>Overall Historical Directional Accuracy</b>\n"
+        f"Completed observations: {accuracy['completed']}\n"
+        f"Correct: {accuracy['correct']}\n"
+        f"Incorrect: {accuracy['incorrect']}\n"
+        f"Flat: {accuracy['flat']}\n"
+        f"Directional hit rate: {win_rate_text}\n\n"
+        "<b>Accuracy by Market</b>\n"
+        f"{market_lines}\n\n"
+        "<b>Accuracy by Timeframe</b>\n"
+        f"{timeframe_lines}\n\n"
         "<i>Hit rate = correct / (correct + incorrect); "
         "flat outcomes are excluded. Historical observations are not "
         "verified profitable trades. No orders were placed.</i>"
@@ -994,21 +1038,25 @@ def main():
     telegram(summary)
 
     discord(
-        "**Punjab Scan Complete**\\n\\n"
-        f"Markets: {len(SYMBOLS)}\\n"
-        f"Timeframes per market: {len(TIMEFRAMES)}\\n"
-        f"Analyses completed: {checked}\\n"
-        f"New history records: {new_records}\\n"
-        f"Telegram updates sent: {telegram_sent}\\n"
-        f"Discord updates sent: {discord_sent}\\n"
-        f"Data/processing issues: {errors}\\n"
-        f"Past observations evaluated this scan: {outcomes_evaluated}\\n\\n"
-        "**Historical Directional Accuracy**\\n"
-        f"Completed observations: {accuracy['completed']}\\n"
-        f"Correct: {accuracy['correct']}\\n"
-        f"Incorrect: {accuracy['incorrect']}\\n"
-        f"Flat: {accuracy['flat']}\\n"
-        f"Directional hit rate: {win_rate_text}\\n\\n"
+        "**Punjab Scan Complete**\n\n"
+        f"Markets: {len(SYMBOLS)}\n"
+        f"Timeframes per market: {len(TIMEFRAMES)}\n"
+        f"Analyses completed: {checked}\n"
+        f"New history records: {new_records}\n"
+        f"Telegram updates sent: {telegram_sent}\n"
+        f"Discord updates sent: {discord_sent}\n"
+        f"Data/processing issues: {errors}\n"
+        f"Past observations evaluated this scan: {outcomes_evaluated}\n\n"
+        "**Overall Historical Directional Accuracy**\n"
+        f"Completed observations: {accuracy['completed']}\n"
+        f"Correct: {accuracy['correct']}\n"
+        f"Incorrect: {accuracy['incorrect']}\n"
+        f"Flat: {accuracy['flat']}\n"
+        f"Directional hit rate: {win_rate_text}\n\n"
+        "**Accuracy by Market**\n"
+        f"{market_lines}\n\n"
+        "**Accuracy by Timeframe**\n"
+        f"{timeframe_lines}\n\n"
         "*Hit rate excludes flat outcomes. Historical observations are not "
         "verified profitable trades. No orders were placed.*"
     )
