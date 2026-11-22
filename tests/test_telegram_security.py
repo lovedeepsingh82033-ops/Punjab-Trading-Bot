@@ -25,7 +25,7 @@ class TelegramAllowlistTests(unittest.TestCase):
         error = self.bot.requests.ConnectionError(secret_url)
         with self.assertLogs(level="ERROR") as captured:
             self.bot.log_safe_error("Telegram connection failed", error)
-        output = "\\n".join(captured.output)
+        output = "\n".join(captured.output)
         self.assertIn("ConnectionError", output)
         self.assertNotIn("sensitive-token", output)
         self.assertNotIn("api.telegram.org", output)
