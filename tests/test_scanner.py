@@ -24,6 +24,7 @@ def item(tf, direction, adx=25):
 class HistoricalBacktestSamplingTests(unittest.TestCase):
     def make_bullish_frame(self, count=100):
         return pd.DataFrame({
+            "open": [100.5 + i for i in range(count)],
             "close": [100.0 + i for i in range(count)],
             "ema9": [3.0] * count,
             "ema21": [2.0] * count,
@@ -42,6 +43,8 @@ class HistoricalBacktestSamplingTests(unittest.TestCase):
         # The 30-row holdout yields nine disjoint three-bar outcome windows.
         self.assertEqual(result["samples"], 9)
         self.assertEqual(result["overlap_policy"], "NON_OVERLAPPING_HORIZON")
+        self.assertEqual(result["entry_policy"], "NEXT_CANDLE_OPEN_TO_HORIZON_CLOSE")
+        # Signal at index 70 closes before entry at index 71 open (171.5).
         self.assertAlmostEqual(result["hit_rate"], 100.0)
 
     def test_short_history_returns_empty_metrics(self):
@@ -51,6 +54,7 @@ class HistoricalBacktestSamplingTests(unittest.TestCase):
         self.assertIsNone(result["avg_move_pct"])
         self.assertIsNone(result["median_move_pct"])
         self.assertEqual(result["overlap_policy"], "NON_OVERLAPPING_HORIZON")
+        self.assertEqual(result["entry_policy"], "NEXT_CANDLE_OPEN_TO_HORIZON_CLOSE")
 
     def test_invalid_horizon_is_rejected(self):
         for horizon in (0, -1, 1.5, True):
