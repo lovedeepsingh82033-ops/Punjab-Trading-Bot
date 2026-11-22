@@ -32,7 +32,7 @@ TIMEFRAMES = {
 }
 
 # Fetch extra candles because the newest API candle may still be open.
-OUTPUT_SIZE = 120
+OUTPUT_SIZE = 500
 MIN_CANDLES = 100
 HISTORY_FILE = "signal_history.csv"
 API_URL = "https://api.twelvedata.com/time_series"
@@ -219,7 +219,27 @@ def discord(message):
         return False
 
 
-def fetch_candles(symbol, interval):
+def filter_completed_candles(df, interval, as_of):
+    """Keep only candles fully closed at one shared UTC scan cutoff."""
+    minutes = next(
+        (value[1] for value in TIMEFRAMES.values() if value[0] == interval),
+        None,
+    )
+    if minutes is None:
+        raise ValueError(f"Unsupported candle interval: {interval}")
+
+    cutoff = pd.Timestamp(as_of)
+    if cutoff.tzinfo is None:
+        cutoff = cutoff.tz_localize("UTC")
+    else:
+        cutoff = cutoff.tz_convert("UTC")
+
+    candle_times = pd.to_datetime(df["datetime"], utc=True, errors="coerce")
+    completed = candle_times + pd.Timedelta(minutes=minutes) <= cutoff
+    return df.loc[completed].reset_index(drop=True)
+
+
+def fetch_candles(symbol, interval, as_of=None):
     global API_RATE_LIMITED
 
     if not API_KEY:
@@ -338,18 +358,10 @@ def fetch_candles(symbol, interval):
                 )
             df = df.loc[valid_ohlc].reset_index(drop=True)
 
-            minutes = next(
-                v[1] for v in TIMEFRAMES.values()
-                if v[0] == interval
-            )
+            cutoff = as_of or datetime.now(timezone.utc)
+            df = filter_completed_candles(df, interval, cutoff)
 
-            now = datetime.now(timezone.utc)
-
-            df = df[
-                df["datetime"] + timedelta(minutes=minutes) <= now
-            ]
-
-            return df.reset_index(drop=True)
+            return df
 
         except RuntimeError:
             raise
@@ -563,8 +575,8 @@ def historical_backtest(df, horizon_bars=3):
             "avg_move_pct": float(values.mean()), "median_move_pct": float(np.median(values))}
 
 
-def analyze(symbol, timeframe, interval):
-    df = fetch_candles(symbol, interval)
+def analyze(symbol, timeframe, interval, as_of=None):
+    df = fetch_candles(symbol, interval, as_of=as_of)
 
     if len(df) < MIN_CANDLES:
         raise RuntimeError(
@@ -675,11 +687,32 @@ def analyze(symbol, timeframe, interval):
         "resistance": float(row["resistance"]),
         "candle_time": candle_time,
         "signal_time": row["datetime"].isoformat(),
+        "scan_cutoff": (
+            pd.Timestamp(as_of or datetime.now(timezone.utc))
+            .tz_convert("UTC").isoformat()
+            if pd.Timestamp(as_of or datetime.now(timezone.utc)).tzinfo
+            else pd.Timestamp(as_of or datetime.now(timezone.utc))
+            .tz_localize("UTC").isoformat()
+        ),
         "backtest": backtest,
         # In-memory candle series for exact-horizon history evaluation.
         # save_new_record writes explicit fields only, so this is not persisted.
         "_candles": df[["datetime", "close"]].copy(),
     }
+
+
+def atomic_save_history(history, path=HISTORY_FILE):
+    """Persist history atomically so interrupted writes do not truncate it."""
+    temporary_path = f"{path}.tmp"
+    try:
+        history.to_csv(temporary_path, index=False)
+        os.replace(temporary_path, path)
+    finally:
+        if os.path.exists(temporary_path):
+            try:
+                os.remove(temporary_path)
+            except OSError:
+                logging.warning("Could not remove temporary history file: %s", temporary_path)
 
 
 def load_history():
@@ -693,9 +726,13 @@ def load_history():
         pd.errors.EmptyDataError,
         OSError,
         ValueError
-    ):
-        logging.exception("History file could not be read.")
-        return pd.DataFrame()
+    ) as exc:
+        # Fail closed: never continue with an empty history and overwrite
+        # the existing file after a read/parse failure.
+        logging.exception("History file could not be read; refusing to overwrite it.")
+        raise RuntimeError(
+            "Signal history is unreadable. Preserve the file and repair it before scanning."
+        ) from exc
 
 
 
@@ -796,11 +833,19 @@ def evaluate_past_signals(current, history, horizon_bars=3):
     return history, updated, correct
 
 
+def canonical_utc_timestamp(value):
+    """Normalize equivalent timestamp strings to one UTC ISO representation."""
+    timestamp = pd.to_datetime(value, utc=True, errors="coerce")
+    if pd.isna(timestamp):
+        return None
+    return timestamp.isoformat()
+
+
 def save_new_record(result, history):
     key = (
         result["symbol"],
         result["timeframe"],
-        result["signal_time"],
+        canonical_utc_timestamp(result["signal_time"]),
     )
 
     if not history.empty:
@@ -808,10 +853,11 @@ def save_new_record(result, history):
             if col not in history.columns:
                 history[col] = ""
 
+        history_times = history["signal_time"].map(canonical_utc_timestamp)
         duplicate = (
             (history["symbol"].astype(str) == key[0])
             & (history["timeframe"].astype(str) == key[1])
-            & (history["signal_time"].astype(str) == key[2])
+            & (history_times == key[2])
         ).any()
 
         if duplicate:
@@ -858,7 +904,7 @@ def save_new_record(result, history):
         keep="first"
     )
 
-    history.to_csv(HISTORY_FILE, index=False)
+    atomic_save_history(history)
 
     return history, True
 
@@ -867,21 +913,79 @@ def save_new_record(result, history):
 def mtf_decision(result, same_market):
     """Strict MTF research gate; it is not a profitability guarantee."""
     direction = result["direction"]
+    expected_symbol = result["symbol"]
+    mixed_symbols = sorted({
+        str(item.get("symbol", ""))
+        for item in same_market
+        if item.get("symbol") != expected_symbol
+    })
+    # Never let another instrument's timeframe vote in this market's cohort.
+    same_market = [
+        item for item in same_market
+        if item.get("symbol") == expected_symbol
+    ]
+    timeframe_names = [item["timeframe"] for item in same_market]
     by_timeframe = {item["timeframe"]: item for item in same_market}
+    duplicate_timeframes = sorted(
+        name for name in set(timeframe_names)
+        if timeframe_names.count(name) > 1
+    )
     scanned = len(by_timeframe)
     votes = sum(item["direction"] == direction for item in by_timeframe.values())
     h1 = by_timeframe.get("H1")
     m30 = by_timeframe.get("M30")
     h1_aligned = h1 is not None and h1["direction"] == direction
     m30_aligned = m30 is not None and m30["direction"] == direction
+    def has_strong_adx(item):
+        try:
+            value = float(item.get("adx"))
+        except (TypeError, ValueError, OverflowError):
+            return False
+        return bool(np.isfinite(value) and value >= 20)
+
+    # Missing, malformed, or non-finite ADX data must fail closed rather
+    # than crash the entire scan or accidentally qualify an MTF cohort.
     anchors_strong = (
         h1 is not None and m30 is not None
-        and float(h1["adx"]) >= 20 and float(m30["adx"]) >= 20
+        and has_strong_adx(h1) and has_strong_adx(m30)
     )
-    complete = scanned == len(TIMEFRAMES)
+
+    # Every production result carries its candle-open timestamp and the
+    # common scan cutoff. A candle is fresh only while its close is no more
+    # than one full timeframe behind that cutoff.
+    freshness_errors = []
+    for item in by_timeframe.values():
+        timeframe = item.get("timeframe")
+        minutes = TIMEFRAMES.get(timeframe, (None, None))[1]
+        try:
+            candle_open = pd.to_datetime(item.get("signal_time"), utc=True, errors="coerce")
+            cutoff = pd.to_datetime(item.get("scan_cutoff"), utc=True, errors="coerce")
+            if minutes is None or pd.isna(candle_open) or pd.isna(cutoff):
+                raise ValueError("missing timing metadata")
+            candle_close = candle_open + pd.Timedelta(minutes=minutes)
+            age = cutoff - candle_close
+            if age < pd.Timedelta(0) or age >= pd.Timedelta(minutes=minutes):
+                freshness_errors.append(timeframe)
+        except (TypeError, ValueError, OverflowError):
+            freshness_errors.append(timeframe)
+    stale_timeframes = sorted(set(freshness_errors))
+    expected_timeframes = set(TIMEFRAMES)
+    complete = (
+        set(by_timeframe) == expected_timeframes
+        and len(timeframe_names) == len(expected_timeframes)
+        and not duplicate_timeframes
+        and not mixed_symbols
+        and not stale_timeframes
+    )
     passed = complete and votes >= 3 and h1_aligned and m30_aligned and anchors_strong
 
-    if not complete:
+    if mixed_symbols:
+        reason, cohort = "MIXED_SYMBOLS", "INCOMPLETE"
+    elif duplicate_timeframes:
+        reason, cohort = "DUPLICATE_TIMEFRAMES", "INCOMPLETE"
+    elif stale_timeframes:
+        reason, cohort = "STALE_OR_MISSING_CANDLE_TIMING", "INCOMPLETE"
+    elif not complete:
         reason, cohort = "INCOMPLETE_TIMEFRAMES", "INCOMPLETE"
     elif not h1_aligned:
         reason, cohort = "H1_NOT_ALIGNED", "BLOCKED"
@@ -898,7 +1002,25 @@ def mtf_decision(result, same_market):
         "passed": passed, "cohort": cohort, "votes": votes,
         "scanned": scanned, "h1_aligned": h1_aligned,
         "m30_aligned": m30_aligned, "reason": reason,
+        "missing_timeframes": sorted(expected_timeframes - set(by_timeframe)),
+        "duplicate_timeframes": duplicate_timeframes,
+        "mixed_symbols": mixed_symbols,
+        "stale_timeframes": stale_timeframes,
     }
+
+
+def mtf_diagnostic_summary(scan_results):
+    """Count MTF candidates and decisions without mixing legacy records."""
+    candidates = [x for x in scan_results if x.get("direction") in ("BULLISH", "BEARISH")]
+    counts = {"candidates": len(candidates), "passed": 0, "blocked": 0,
+              "incomplete": 0, "reasons": {}}
+    for result in candidates:
+        same_market = [x for x in scan_results if x["symbol"] == result["symbol"]]
+        decision = mtf_decision(result, same_market)
+        counts[decision["cohort"].lower()] += 1
+        reason = decision["reason"]
+        counts["reasons"][reason] = counts["reasons"].get(reason, 0) + 1
+    return counts
 
 
 def label_mtf_cohorts(scan_results, history):
@@ -922,10 +1044,12 @@ def label_mtf_cohorts(scan_results, history):
             continue
         same_market = [x for x in scan_results if x["symbol"] == result["symbol"]]
         decision = mtf_decision(result, same_market)
+        history_times = history["signal_time"].map(canonical_utc_timestamp)
+        result_time = canonical_utc_timestamp(result["signal_time"])
         mask = (
             (history["symbol"].astype(str) == str(result["symbol"]))
             & (history["timeframe"].astype(str) == str(result["timeframe"]))
-            & (history["signal_time"].astype(str) == str(result["signal_time"]))
+            & (history_times == result_time)
             & (history["mtf_cohort"].astype(str) == "UNASSESSED")
         )
         values = {
@@ -941,6 +1065,105 @@ def label_mtf_cohorts(scan_results, history):
     return history
 
 
+def exact_verified_history(history):
+    """Return exact-horizon outcomes, excluding every row in duplicate signal keys."""
+    if history.empty:
+        return history.copy()
+    required = {"symbol", "timeframe", "signal_time", "outcome_method", "outcome_status"}
+    if not required.issubset(history.columns):
+        return history.iloc[0:0].copy()
+    statuses = history["outcome_status"].fillna("").astype(str).str.upper()
+    valid = (
+        history["outcome_method"].fillna("").astype(str).eq("EXACT_3_CANDLE")
+        & statuses.isin(["CORRECT", "INCORRECT", "FLAT"])
+    )
+    exact = history[valid].copy()
+    keys = ["symbol", "timeframe", "signal_time"]
+    normalized_keys = exact[keys].copy()
+    normalized_keys["signal_time"] = normalized_keys["signal_time"].map(
+        canonical_utc_timestamp
+    )
+    missing_key = (
+        normalized_keys.isna().any(axis=1)
+        | normalized_keys["symbol"].astype(str).str.strip().eq("")
+        | normalized_keys["timeframe"].astype(str).str.strip().eq("")
+    )
+    duplicate_key = normalized_keys.duplicated(keep=False)
+    return exact[~(missing_key | duplicate_key)].copy()
+
+
+def mtf_cohort_evidence_summary(history, minimum_directional_samples=30):
+    """Report cohort hit rates with Wilson intervals and an evidence-size warning."""
+    valid = exact_verified_history(history)
+    lines = []
+    stats = {}
+
+    for cohort in ("PASSED", "BLOCKED"):
+        group = valid[valid.get("mtf_cohort", pd.Series(index=valid.index, dtype=str))
+                      .fillna("").astype(str) == cohort]
+        statuses = group["outcome_status"].fillna("").astype(str).str.upper()
+        correct = int((statuses == "CORRECT").sum())
+        incorrect = int((statuses == "INCORRECT").sum())
+        flat = int((statuses == "FLAT").sum())
+        decisive = correct + incorrect
+        rate = correct / decisive if decisive else None
+
+        # Wilson score interval avoids misleading normal intervals at small n.
+        if decisive:
+            z = 1.959963984540054
+            denominator = 1 + z * z / decisive
+            center = (rate + z * z / (2 * decisive)) / denominator
+            margin = (
+                z * np.sqrt(
+                    rate * (1 - rate) / decisive
+                    + z * z / (4 * decisive * decisive)
+                ) / denominator
+            )
+            low = max(0.0, center - margin) * 100
+            high = min(1.0, center + margin) * 100
+            interval = f"{low:.1f}%–{high:.1f}%"
+            rate_text = f"{rate * 100:.1f}%"
+        else:
+            interval = "not available"
+            rate_text = "not available"
+
+        evidence = (
+            "minimum sample reached"
+            if decisive >= minimum_directional_samples
+            else f"insufficient evidence (<{minimum_directional_samples} directional samples)"
+        )
+        lines.append(
+            f"{cohort}: {len(group)} matured; {correct} correct / "
+            f"{incorrect} incorrect / {flat} flat; directional hit rate "
+            f"{rate_text}; 95% Wilson CI {interval}; {evidence}"
+        )
+        stats[cohort] = {
+            "matured": len(group), "correct": correct,
+            "incorrect": incorrect, "flat": flat,
+            "directional_samples": decisive, "hit_rate": rate,
+            "ci95_low": low if decisive else None,
+            "ci95_high": high if decisive else None,
+        }
+
+    enough = all(
+        stats[cohort]["directional_samples"] >= minimum_directional_samples
+        for cohort in ("PASSED", "BLOCKED")
+    )
+    if enough:
+        comparison = (
+            "PASSED vs BLOCKED: both groups meet the minimum sample size; "
+            "compare rates and confidence intervals cautiously. This is "
+            "observational evidence, not proof that the filter causes better results."
+        )
+    else:
+        comparison = (
+            "PASSED vs BLOCKED comparison: not ready; each group needs at least "
+            f"{minimum_directional_samples} matured directional observations."
+        )
+    lines.append(comparison)
+    return lines, stats
+
+
 def mtf_accuracy_summary(history):
     """Report matured exact-three-candle results for passed/blocked cohorts."""
     empty = {
@@ -949,14 +1172,7 @@ def mtf_accuracy_summary(history):
     }
     if history.empty or "mtf_cohort" not in history.columns:
         return empty
-    if "outcome_method" not in history.columns or "outcome_status" not in history.columns:
-        return empty
-    valid = history[
-        (history["outcome_method"].astype(str) == "EXACT_3_CANDLE")
-        & history["outcome_status"].fillna("").astype(str).str.upper().isin(
-            ["CORRECT", "INCORRECT", "FLAT"]
-        )
-    ]
+    valid = exact_verified_history(history)
     lines = {}
     for cohort in ("PASSED", "BLOCKED"):
         group = valid[valid["mtf_cohort"].astype(str) == cohort]
@@ -974,17 +1190,11 @@ def mtf_accuracy_summary(history):
 
 
 def accuracy_summary(history):
-    """Summarize completed directional observations; flats are not wins."""
+    """Summarize unique, verified exact-horizon observations; flats are not wins."""
     if history.empty or "outcome_status" not in history.columns:
         return {"completed": 0, "correct": 0, "incorrect": 0,
                 "flat": 0, "win_rate": None}
-
-    # Report only consistently measured exact three-candle outcomes.
-    if "outcome_method" not in history.columns:
-        history = history.iloc[0:0]
-    else:
-        history = history[history["outcome_method"].astype(str) == "EXACT_3_CANDLE"]
-
+    history = exact_verified_history(history)
     statuses = history["outcome_status"].fillna("").astype(str).str.upper()
     correct = int((statuses == "CORRECT").sum())
     incorrect = int((statuses == "INCORRECT").sum())
@@ -998,8 +1208,6 @@ def accuracy_summary(history):
         "win_rate": (correct / decisive * 100) if decisive else None,
     }
 
-
-
 def accuracy_breakdown(history, group_col):
     """Return accuracy lines grouped by market or timeframe."""
     if (
@@ -1012,12 +1220,7 @@ def accuracy_breakdown(history, group_col):
     if "outcome_method" not in history.columns:
         return []
 
-    completed = history[
-        (history["outcome_method"].astype(str) == "EXACT_3_CANDLE")
-        & history["outcome_status"].fillna("").astype(str).str.upper().isin(
-            ["CORRECT", "INCORRECT", "FLAT"]
-        )
-    ]
+    completed = exact_verified_history(history)
     if completed.empty:
         return []
 
@@ -1037,6 +1240,79 @@ def accuracy_breakdown(history, group_col):
         else:
             lines.append(f"{name}: no decisive results yet ({flat} flat)")
     return lines
+
+
+
+def accuracy_integrity_summary(history):
+    """Audit exact-horizon counts, duplicate keys, and grouped status totals."""
+    result = {
+        "status": "OK", "warnings": [], "completed": 0,
+        "correct": 0, "incorrect": 0, "flat": 0,
+        "market_rows": 0, "timeframe_rows": 0,
+        "duplicate_keys": 0, "duplicate_rows_quarantined": 0,
+        "missing_keys": 0, "invalid_exact_status": 0,
+    }
+    if history.empty:
+        return result
+    required = {"symbol", "timeframe", "signal_time", "outcome_method", "outcome_status"}
+    if not required.issubset(history.columns):
+        result["status"] = "WARNING"
+        result["warnings"].append("Required history columns are missing")
+        return result
+
+    exact_mask = history["outcome_method"].fillna("").astype(str).eq("EXACT_3_CANDLE")
+    statuses = history["outcome_status"].fillna("").astype(str).str.upper()
+    valid_status = statuses.isin(["CORRECT", "INCORRECT", "FLAT"])
+    exact_all = history[exact_mask & valid_status].copy()
+    result["invalid_exact_status"] = int((exact_mask & ~valid_status).sum())
+
+    keys = ["symbol", "timeframe", "signal_time"]
+    normalized_keys = exact_all[keys].copy()
+    normalized_keys["signal_time"] = normalized_keys["signal_time"].map(
+        canonical_utc_timestamp
+    )
+    missing_key_mask = (
+        normalized_keys.isna().any(axis=1)
+        | normalized_keys["symbol"].astype(str).str.strip().eq("")
+        | normalized_keys["timeframe"].astype(str).str.strip().eq("")
+    )
+    duplicate_mask = normalized_keys.duplicated(keep=False)
+    result["missing_keys"] = int(missing_key_mask.sum())
+    result["duplicate_rows_quarantined"] = int(duplicate_mask.sum())
+    result["duplicate_keys"] = int(normalized_keys.loc[duplicate_mask].drop_duplicates().shape[0])
+
+    exact = exact_verified_history(history)
+    exact_statuses = exact["outcome_status"].fillna("").astype(str).str.upper()
+    result["correct"] = int((exact_statuses == "CORRECT").sum())
+    result["incorrect"] = int((exact_statuses == "INCORRECT").sum())
+    result["flat"] = int((exact_statuses == "FLAT").sum())
+    result["completed"] = len(exact)
+    result["market_rows"] = int(exact.groupby("symbol", dropna=False).size().sum())
+    result["timeframe_rows"] = int(exact.groupby("timeframe", dropna=False).size().sum())
+
+    expected = {"CORRECT": result["correct"], "INCORRECT": result["incorrect"], "FLAT": result["flat"]}
+    for group_col, label in (("symbol", "market"), ("timeframe", "timeframe")):
+        grouped = exact.assign(
+            _status=exact["outcome_status"].fillna("").astype(str).str.upper()
+        ).groupby([group_col, "_status"], dropna=False).size()
+        actual = {status: int(grouped.xs(status, level="_status").sum())
+                  if status in grouped.index.get_level_values("_status") else 0
+                  for status in expected}
+        if actual != expected:
+            result["warnings"].append(f"{label.title()} correct/incorrect/flat totals do not reconcile")
+
+    if result["invalid_exact_status"]:
+        result["warnings"].append(f"{result['invalid_exact_status']} exact-horizon rows have invalid or pending outcome statuses")
+    if result["missing_keys"]:
+        result["warnings"].append(f"{result['missing_keys']} exact-horizon rows have missing signal keys")
+    if result["duplicate_keys"]:
+        result["warnings"].append(
+            f"{result['duplicate_keys']} duplicate signal keys found; "
+            f"{result['duplicate_rows_quarantined']} rows excluded from accuracy"
+        )
+    if result["warnings"]:
+        result["status"] = "WARNING"
+    return result
 
 
 def format_report(r, mtf_text="Not enough matching timeframe data"):
@@ -1127,6 +1403,9 @@ def main():
         return
 
     history = load_history()
+    # Freeze the data boundary before the first API request. Every market and
+    # timeframe is evaluated only with candles closed by this same UTC instant.
+    scan_cutoff = datetime.now(timezone.utc)
 
     checked = 0
     new_records = 0
@@ -1155,7 +1434,7 @@ def main():
 
             try:
                 result = analyze(
-                    symbol, timeframe, interval
+                    symbol, timeframe, interval, as_of=scan_cutoff
                 )
 
                 checked += 1
@@ -1252,7 +1531,7 @@ def main():
     )
 
     try:
-        history.to_csv(HISTORY_FILE, index=False)
+        atomic_save_history(history)
 
     except OSError:
         logging.exception("Could not save history.")
@@ -1269,7 +1548,17 @@ def main():
     market_lines = "\n".join(market_accuracy) if market_accuracy else "Not available yet"
     timeframe_lines = "\n".join(timeframe_accuracy) if timeframe_accuracy else "Not available yet"
     mtf_accuracy = mtf_accuracy_summary(history)
+    mtf_evidence_lines, mtf_evidence_stats = mtf_cohort_evidence_summary(history)
+    integrity = accuracy_integrity_summary(history)
+    integrity_warning_text = "; ".join(integrity["warnings"]) if integrity["warnings"] else "All totals reconcile; no duplicate keys detected"
     mtf_accuracy_text = "\n".join(mtf_accuracy.values())
+    mtf_evidence_text = "\n".join(mtf_evidence_lines)
+    # Diagnostics must use the full scan (including neutral frames), not only new alerts.
+    mtf_diagnostics = mtf_diagnostic_summary(scan_results)
+    mtf_reason_text = (
+        "\n".join(f"{reason}: {count}" for reason, count in sorted(mtf_diagnostics["reasons"].items()))
+        if mtf_diagnostics["reasons"] else "No directional candidates"
+    )
 
     tested = [x for x in backtest_results if x["samples"] > 0]
     tested.sort(key=lambda x: x["avg_move_pct"], reverse=True)
@@ -1291,20 +1580,26 @@ def main():
         f"Discord updates sent: {discord_sent}\n"
         f"Data/processing issues: {errors}\n"
         f"Past observations evaluated this scan: {outcomes_evaluated}\n"
-        f"MTF blocked: {mtf_blocked} | incomplete: {mtf_incomplete}\n\n"
-        "<b>MTF Cohort Accuracy (exact 3-candle; legacy rows excluded)</b>\n"
-        f"{mtf_accuracy_text}\n\n"
+        f"MTF blocked: {mtf_blocked} | incomplete: {mtf_incomplete}\n"
+        f"MTF candidates: {mtf_diagnostics['candidates']} | passed: {mtf_diagnostics['passed']} | blocked: {mtf_diagnostics['blocked']} | incomplete: {mtf_diagnostics['incomplete']}\n"
+        f"MTF block reasons: {mtf_reason_text}\n\n"
+        "<b>MTF Cohort Evidence (exact 3-candle; legacy rows excluded)</b>\n"
+        f"{mtf_evidence_text}\n\n"
         "<b>Verified Exact 3-Candle Directional Accuracy</b>\n"
         f"Completed observations: {accuracy['completed']}\n"
         f"Correct: {accuracy['correct']}\n"
         f"Incorrect: {accuracy['incorrect']}\n"
         f"Flat: {accuracy['flat']}\n"
         f"Directional hit rate: {win_rate_text}\n\n"
+        f"Data integrity: {integrity['status']}\n"
+        f"Market rows reconciled: {integrity['market_rows']} | timeframe rows reconciled: {integrity['timeframe_rows']}\n"
+        f"Duplicate keys: {integrity['duplicate_keys']} | invalid exact outcomes: {integrity['invalid_exact_status']}\n"
+        f"Integrity details: {integrity_warning_text}\n\n"
         "<b>Accuracy by Market</b>\n"
         f"{market_lines}\n\n"
         "<b>Accuracy by Timeframe</b>\n"
         f"{timeframe_lines}\n\n"
-        "<b>Base-rule Out-of-Sample Test (not MTF-filtered; final 30%, exact 3-candle horizon)</b>\n"
+        "<b>Base-rule Rolling Holdout Sample (not MTF-filtered; final 30%, exact 3-candle horizon)</b>\n"
         f"{backtest_text}\n\n"
         "<i>Accuracy includes only observations evaluated at exactly "
         "the third subsequent completed candle. Older variable-horizon "
@@ -1325,7 +1620,9 @@ def main():
         f"Discord updates sent: {discord_sent}\n"
         f"Data/processing issues: {errors}\n"
         f"Past observations evaluated this scan: {outcomes_evaluated}\n"
-        f"MTF blocked: {mtf_blocked} | incomplete: {mtf_incomplete}\n\n"
+        f"MTF blocked: {mtf_blocked} | incomplete: {mtf_incomplete}\n"
+        f"MTF candidates: {mtf_diagnostics['candidates']} | passed: {mtf_diagnostics['passed']} | blocked: {mtf_diagnostics['blocked']} | incomplete: {mtf_diagnostics['incomplete']}\n"
+        f"MTF block reasons: {mtf_reason_text}\n\n"
         "**MTF Cohort Accuracy (exact 3-candle; legacy rows excluded)**\n"
         f"{mtf_accuracy_text}\n\n"
         "**Overall Historical Directional Accuracy**\n"
@@ -1338,7 +1635,7 @@ def main():
         f"{market_lines}\n\n"
         "**Accuracy by Timeframe**\n"
         f"{timeframe_lines}\n\n"
-        "**Base-rule Out-of-Sample Test (not MTF-filtered; final 30%, exact 3-candle horizon)**\n"
+        "**Base-rule Rolling Holdout Sample (not MTF-filtered; final 30%, exact 3-candle horizon)**\n"
         f"{backtest_text}\n\n"
         "*Accuracy includes only exact third-candle evaluations. Older "
         "variable-horizon results are excluded. Hit rate excludes flats. "
