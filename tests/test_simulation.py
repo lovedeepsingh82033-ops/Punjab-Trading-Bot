@@ -35,6 +35,16 @@ class PaperSimulationMetricsTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     summarize_paper_returns(values)
 
+    def test_rejects_costs_that_make_net_return_minus_100_or_less(self):
+        for gross, costs in ([0.0, 100.0], [0.0, 100.1], [-99.9, 0.1]):
+            with self.subTest(gross=gross, costs=costs):
+                with self.assertRaisesRegex(ValueError, "net return"):
+                    summarize_paper_returns([gross], costs)
+
+    def test_accepts_net_return_just_above_minus_100(self):
+        result = summarize_paper_returns([-99.0], 0.9)
+        self.assertAlmostEqual(result["net_returns_pct"][0], -99.9)
+
     def test_profit_factor_uses_net_positive_and_negative_results(self):
         result = summarize_paper_returns([2.0, -1.0, 1.0], 0.5, 1)
         self.assertAlmostEqual(result["profit_factor"], 4.0 / 3.0)
