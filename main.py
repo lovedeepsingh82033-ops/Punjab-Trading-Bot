@@ -693,9 +693,13 @@ def load_history():
         pd.errors.EmptyDataError,
         OSError,
         ValueError
-    ):
-        logging.exception("History file could not be read.")
-        return pd.DataFrame()
+    ) as exc:
+        # Fail closed: never continue with an empty history and overwrite
+        # the existing file after a read/parse failure.
+        logging.exception("History file could not be read; refusing to overwrite it.")
+        raise RuntimeError(
+            "Signal history is unreadable. Preserve the file and repair it before scanning."
+        ) from exc
 
 
 
@@ -878,7 +882,8 @@ def mtf_decision(result, same_market):
         h1 is not None and m30 is not None
         and float(h1["adx"]) >= 20 and float(m30["adx"]) >= 20
     )
-    complete = scanned == len(TIMEFRAMES)
+    expected_timeframes = set(TIMEFRAMES)
+    complete = set(by_timeframe) == expected_timeframes
     passed = complete and votes >= 3 and h1_aligned and m30_aligned and anchors_strong
 
     if not complete:
@@ -898,7 +903,22 @@ def mtf_decision(result, same_market):
         "passed": passed, "cohort": cohort, "votes": votes,
         "scanned": scanned, "h1_aligned": h1_aligned,
         "m30_aligned": m30_aligned, "reason": reason,
+        "missing_timeframes": sorted(expected_timeframes - set(by_timeframe)),
     }
+
+
+def mtf_diagnostic_summary(scan_results):
+    """Count MTF candidates and decisions without mixing legacy records."""
+    candidates = [x for x in scan_results if x.get("direction") in ("BULLISH", "BEARISH")]
+    counts = {"candidates": len(candidates), "passed": 0, "blocked": 0,
+              "incomplete": 0, "reasons": {}}
+    for result in candidates:
+        same_market = [x for x in scan_results if x["symbol"] == result["symbol"]]
+        decision = mtf_decision(result, same_market)
+        counts[decision["cohort"].lower()] += 1
+        reason = decision["reason"]
+        counts["reasons"][reason] = counts["reasons"].get(reason, 0) + 1
+    return counts
 
 
 def label_mtf_cohorts(scan_results, history):
@@ -1270,6 +1290,11 @@ def main():
     timeframe_lines = "\n".join(timeframe_accuracy) if timeframe_accuracy else "Not available yet"
     mtf_accuracy = mtf_accuracy_summary(history)
     mtf_accuracy_text = "\n".join(mtf_accuracy.values())
+    mtf_diagnostics = mtf_diagnostic_summary(scan_results)
+    mtf_reason_text = (
+        "\n".join(f"{reason}: {count}" for reason, count in sorted(mtf_diagnostics["reasons"].items()))
+        if mtf_diagnostics["reasons"] else "No directional candidates"
+    )
 
     tested = [x for x in backtest_results if x["samples"] > 0]
     tested.sort(key=lambda x: x["avg_move_pct"], reverse=True)
@@ -1291,7 +1316,9 @@ def main():
         f"Discord updates sent: {discord_sent}\n"
         f"Data/processing issues: {errors}\n"
         f"Past observations evaluated this scan: {outcomes_evaluated}\n"
-        f"MTF blocked: {mtf_blocked} | incomplete: {mtf_incomplete}\n\n"
+        f"MTF blocked: {mtf_blocked} | incomplete: {mtf_incomplete}\n"
+        f"MTF candidates: {mtf_diagnostics['candidates']} | passed: {mtf_diagnostics['passed']} | blocked: {mtf_diagnostics['blocked']} | incomplete: {mtf_diagnostics['incomplete']}\n"
+        f"MTF block reasons: {mtf_reason_text}\n\n"
         "<b>MTF Cohort Accuracy (exact 3-candle; legacy rows excluded)</b>\n"
         f"{mtf_accuracy_text}\n\n"
         "<b>Verified Exact 3-Candle Directional Accuracy</b>\n"
@@ -1325,7 +1352,9 @@ def main():
         f"Discord updates sent: {discord_sent}\n"
         f"Data/processing issues: {errors}\n"
         f"Past observations evaluated this scan: {outcomes_evaluated}\n"
-        f"MTF blocked: {mtf_blocked} | incomplete: {mtf_incomplete}\n\n"
+        f"MTF blocked: {mtf_blocked} | incomplete: {mtf_incomplete}\n"
+        f"MTF candidates: {mtf_diagnostics['candidates']} | passed: {mtf_diagnostics['passed']} | blocked: {mtf_diagnostics['blocked']} | incomplete: {mtf_diagnostics['incomplete']}\n"
+        f"MTF block reasons: {mtf_reason_text}\n\n"
         "**MTF Cohort Accuracy (exact 3-candle; legacy rows excluded)**\n"
         f"{mtf_accuracy_text}\n\n"
         "**Overall Historical Directional Accuracy**\n"
