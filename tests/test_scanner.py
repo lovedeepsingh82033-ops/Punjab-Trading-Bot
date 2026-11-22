@@ -216,11 +216,12 @@ class AccuracyIntegrityTests(unittest.TestCase):
         statuses = (["CORRECT"] * 144) + (["INCORRECT"] * 167) + (["FLAT"] * 10)
         markets = ["AUD/USD", "EUR/USD", "GBP/USD", "NZD/USD", "USD/CAD", "USD/JPY", "XAU/USD"]
         timeframes = ["M5", "M15", "M30", "H1"]
+        start = pd.Timestamp("2026-11-22T00:00:00Z")
         for i, status in enumerate(statuses):
             rows.append({
                 "symbol": markets[i % len(markets)],
                 "timeframe": timeframes[i % len(timeframes)],
-                "signal_time": f"2026-11-22T{i:04d}:00Z",
+                "signal_time": (start + pd.Timedelta(minutes=i)).isoformat(),
                 "outcome_method": "EXACT_3_CANDLE",
                 "outcome_status": status,
             })
