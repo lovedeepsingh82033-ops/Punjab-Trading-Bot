@@ -1651,7 +1651,7 @@ def main():
         f"{market_lines}\n\n"
         "**Accuracy by Timeframe**\n"
         f"{timeframe_lines}\n\n"
-        "**Base-rule Rolling Holdout Sample (not MTF-filtered; final 30%, exact 3-candle horizon)**\n"
+        "**Non-overlapping Base-rule Holdout Sample (not MTF-filtered; final 30%, exact 3-candle horizon)**\n"
         f"{backtest_text}\n\n"
         "*Backtest samples use non-overlapping exact 3-candle outcome windows. "
         "Persisted accuracy includes only exact third-candle evaluations. "
