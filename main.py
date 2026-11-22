@@ -668,11 +668,11 @@ def save_new_record(result, history):
 
 def format_report(r):
     if r["signal"] == "BULLISH":
-        signal_display = "BULLISH OBSERVATION ▲"
+        signal_display = "BUY 🟢"
     elif r["signal"] == "BEARISH":
-        signal_display = "BEARISH OBSERVATION ▼"
+        signal_display = "SELL 🔴"
     else:
-        signal_display = "NEUTRAL OBSERVATION"
+        return None
 
     return (
         "<b>Punjab Market Scanner</b>\n\n"
@@ -783,15 +783,19 @@ def main():
                 if is_new:
                     new_records += 1
 
+                    # Send only clear BUY/SELL observations.
+                    # Neutral analyses remain in history but do not
+                    # generate a Telegram or Discord signal message.
                     report = format_report(result)
 
-                    if telegram(report):
-                        telegram_sent += 1
+                    if report is not None:
+                        if telegram(report):
+                            telegram_sent += 1
 
-                    if discord(
-                        format_discord_report(result)
-                    ):
-                        discord_sent += 1
+                        if discord(
+                            format_discord_report(result)
+                        ):
+                            discord_sent += 1
 
                 logging.info(
                     "%s %s: observation completed (new=%s)",
