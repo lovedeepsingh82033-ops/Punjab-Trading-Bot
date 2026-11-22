@@ -20,6 +20,16 @@ class TelegramAllowlistTests(unittest.TestCase):
         telegram_bot.TOKEN = ""
         telegram_bot.CHAT_ID = ""
 
+    def test_error_logging_does_not_expose_request_url_or_token(self):
+        secret_url = "https://api.telegram.org/bot-sensitive-token/getUpdates"
+        error = self.bot.requests.ConnectionError(secret_url)
+        with self.assertLogs(level="ERROR") as captured:
+            self.bot.log_safe_error("Telegram connection failed", error)
+        output = "\\n".join(captured.output)
+        self.assertIn("ConnectionError", output)
+        self.assertNotIn("sensitive-token", output)
+        self.assertNotIn("api.telegram.org", output)
+
     def test_matching_chat_is_authorized(self):
         self.assertTrue(self.bot.is_authorized_chat(123456))
 
