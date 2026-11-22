@@ -42,9 +42,9 @@ class MTFTests(unittest.TestCase):
 
     def test_accuracy_summary_excludes_unverified_legacy_rows(self):
         history = pd.DataFrame([
-            {"outcome_method": "EXACT_3_CANDLE", "outcome_status": "CORRECT"},
-            {"outcome_method": "LEGACY", "outcome_status": "INCORRECT"},
-            {"outcome_method": "EXACT_3_CANDLE", "outcome_status": "INCORRECT"},
+            {"symbol": "EUR/USD", "timeframe": "M5", "signal_time": "2026-11-22T10:00:00Z", "outcome_method": "EXACT_3_CANDLE", "outcome_status": "CORRECT"},
+            {"symbol": "EUR/USD", "timeframe": "M5", "signal_time": "2026-11-22T10:05:00Z", "outcome_method": "LEGACY", "outcome_status": "INCORRECT"},
+            {"symbol": "EUR/USD", "timeframe": "M5", "signal_time": "2026-11-22T10:10:00Z", "outcome_method": "EXACT_3_CANDLE", "outcome_status": "INCORRECT"},
         ])
         summary = main.accuracy_summary(history)
         self.assertEqual(summary["completed"], 2)
