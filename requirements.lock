@@ -1,0 +1,11 @@
+# Fully pinned direct and transitive dependencies for the Python 3.11 Linux CI environment.
+# Keep this file in sync with requirements.txt; refresh and review all pins together.
+certifi==2026.10.23
+charset-normalizer==3.5.2
+idna==3.20
+numpy==2.4.6
+pandas==3.1.1
+python-dateutil==2.9.0.post0
+requests==2.34.2
+six==1.17.0
+urllib3==2.8.0

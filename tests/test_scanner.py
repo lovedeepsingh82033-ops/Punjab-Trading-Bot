@@ -21,6 +21,81 @@ def item(tf, direction, adx=25):
     }
 
 
+class HistoricalBacktestSamplingTests(unittest.TestCase):
+    def make_bullish_frame(self, count=100):
+        return pd.DataFrame({
+            "open": [100.5 + i for i in range(count)],
+            "close": [100.0 + i for i in range(count)],
+            "ema9": [3.0] * count,
+            "ema21": [2.0] * count,
+            "ema50": [1.0] * count,
+            "rsi": [60.0] * count,
+            "macd": [2.0] * count,
+            "macd_signal": [1.0] * count,
+            "macd_hist": [1.0] * count,
+            "adx": [25.0] * count,
+            "plus_di": [30.0] * count,
+            "minus_di": [10.0] * count,
+        })
+
+    def test_outcome_windows_do_not_overlap(self):
+        result = main.historical_backtest(self.make_bullish_frame(), horizon_bars=3)
+        # The 30-row holdout yields nine disjoint three-bar outcome windows.
+        self.assertEqual(result["samples"], 9)
+        self.assertEqual(result["overlap_policy"], "NON_OVERLAPPING_HORIZON")
+        self.assertEqual(result["entry_policy"], "NEXT_CANDLE_OPEN_TO_HORIZON_CLOSE")
+        # Nine signals start at indices 70, 73, ..., 94. Each enters at
+        # the next candle open and exits at the horizon candle close.
+        expected_moves = [
+            (float(i + 103) - float(i + 101.5)) / float(i + 101.5) * 100
+            for i in range(70, 97, 3)
+        ]
+        self.assertAlmostEqual(result["hit_rate"], 100.0)
+        self.assertAlmostEqual(result["avg_move_pct"], sum(expected_moves) / len(expected_moves))
+        expected_moves.sort()
+        self.assertAlmostEqual(result["median_move_pct"], expected_moves[len(expected_moves) // 2])
+
+    def test_short_history_returns_empty_metrics(self):
+        result = main.historical_backtest(self.make_bullish_frame(count=20), horizon_bars=3)
+        self.assertEqual(result["samples"], 0)
+        self.assertIsNone(result["hit_rate"])
+        self.assertIsNone(result["avg_move_pct"])
+        self.assertIsNone(result["median_move_pct"])
+        self.assertEqual(result["overlap_policy"], "NON_OVERLAPPING_HORIZON")
+        self.assertEqual(result["entry_policy"], "NEXT_CANDLE_OPEN_TO_HORIZON_CLOSE")
+
+    def test_invalid_horizon_is_rejected(self):
+        for horizon in (0, -1, 1.5, True):
+            with self.subTest(horizon=horizon):
+                with self.assertRaises(ValueError):
+                    main.historical_backtest(self.make_bullish_frame(), horizon_bars=horizon)
+
+
+class IndicatorCausalityTests(unittest.TestCase):
+    def test_past_indicator_values_do_not_change_when_future_rows_are_added(self):
+        closes = [100.0 + i * 0.15 + (i % 7) * 0.08 for i in range(120)]
+        frame = pd.DataFrame({
+            "close": closes,
+            "high": [value + 0.4 + (i % 3) * 0.02 for i, value in enumerate(closes)],
+            "low": [value - 0.35 - (i % 4) * 0.015 for i, value in enumerate(closes)],
+        })
+        cutoff = 85
+        full = main.add_indicators(frame)
+        prefix = main.add_indicators(frame.iloc[:cutoff + 1].copy())
+        columns = [
+            "ema9", "ema21", "ema50", "rsi", "macd",
+            "macd_signal", "macd_hist", "atr", "adx",
+            "plus_di", "minus_di", "support", "resistance",
+        ]
+        for column in columns:
+            with self.subTest(column=column):
+                self.assertAlmostEqual(
+                    float(full.iloc[cutoff][column]),
+                    float(prefix.iloc[-1][column]),
+                    places=10,
+                )
+
+
 class CompletedCandleCutoffTests(unittest.TestCase):
     def test_shared_cutoff_excludes_candles_not_yet_closed(self):
         frame = pd.DataFrame({
@@ -410,3 +485,26 @@ class MTFEvidenceAndTimestampTests(unittest.TestCase):
              "outcome_method": "EXACT_3_CANDLE", "outcome_status": "INCORRECT"},
         ]
         self.assertEqual(main.accuracy_summary(pd.DataFrame(rows))["completed"], 0)
+
+
+class RsiWarningTests(unittest.TestCase):
+    def test_extreme_rsi_reports_overbought_warning(self):
+        self.assertIn("OVERBOUGHT", main.rsi_warning(82.54))
+
+    def test_rsi_at_overbought_threshold_reports_warning(self):
+        self.assertIn("OVERBOUGHT", main.rsi_warning(70.0))
+
+    def test_extreme_rsi_reports_oversold_warning(self):
+        self.assertIn("OVERSOLD", main.rsi_warning(25.22))
+
+    def test_rsi_at_oversold_threshold_reports_warning(self):
+        self.assertIn("OVERSOLD", main.rsi_warning(30.0))
+
+    def test_rsi_between_thresholds_has_no_extreme_warning(self):
+        self.assertEqual(main.rsi_warning(50.0), "No extreme RSI warning")
+
+    def test_non_finite_rsi_is_rejected(self):
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    main.rsi_warning(value)
