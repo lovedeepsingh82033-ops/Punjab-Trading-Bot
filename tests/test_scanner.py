@@ -485,3 +485,17 @@ class MTFEvidenceAndTimestampTests(unittest.TestCase):
              "outcome_method": "EXACT_3_CANDLE", "outcome_status": "INCORRECT"},
         ]
         self.assertEqual(main.accuracy_summary(pd.DataFrame(rows))["completed"], 0)
+
+
+class RsiWarningTests(unittest.TestCase):
+    def test_extreme_rsi_reports_overbought_warning(self):
+        self.assertIn("OVERBOUGHT", main.rsi_warning(82.54))
+
+    def test_rsi_below_extreme_threshold_has_no_extreme_warning(self):
+        self.assertEqual(main.rsi_warning(79.99), "No extreme RSI warning")
+
+    def test_non_finite_rsi_is_rejected(self):
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    main.rsi_warning(value)
