@@ -491,8 +491,17 @@ class RsiWarningTests(unittest.TestCase):
     def test_extreme_rsi_reports_overbought_warning(self):
         self.assertIn("OVERBOUGHT", main.rsi_warning(82.54))
 
-    def test_rsi_below_extreme_threshold_has_no_extreme_warning(self):
-        self.assertEqual(main.rsi_warning(79.99), "No extreme RSI warning")
+    def test_rsi_at_overbought_threshold_reports_warning(self):
+        self.assertIn("OVERBOUGHT", main.rsi_warning(70.0))
+
+    def test_extreme_rsi_reports_oversold_warning(self):
+        self.assertIn("OVERSOLD", main.rsi_warning(25.22))
+
+    def test_rsi_at_oversold_threshold_reports_warning(self):
+        self.assertIn("OVERSOLD", main.rsi_warning(30.0))
+
+    def test_rsi_between_thresholds_has_no_extreme_warning(self):
+        self.assertEqual(main.rsi_warning(50.0), "No extreme RSI warning")
 
     def test_non_finite_rsi_is_rejected(self):
         for value in (float("nan"), float("inf"), float("-inf")):
