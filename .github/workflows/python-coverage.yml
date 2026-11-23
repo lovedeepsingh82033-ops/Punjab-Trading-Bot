@@ -1,5 +1,4 @@
 name: Python Test Coverage
-
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -33,11 +32,13 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install locked project dependencies and coverage tool
+      - name: Resolve and install hash-locked dependencies
         run: |
-          python -m pip install --only-binary=:all: pip==25.3
-          python -m pip install --only-binary=:all: -r requirements.lock
-          python -m pip install --only-binary=:all: coverage==7.11.0
+          python -m pip install --only-binary=:all: "pip==25.3" "pip-tools==7.5.2"
+          cat requirements.txt > /tmp/coverage-requirements.in
+          printf '\ncoverage==7.11.0\n' >> /tmp/coverage-requirements.in
+          pip-compile --resolver=backtracking --generate-hashes --output-file=/tmp/coverage-requirements.lock /tmp/coverage-requirements.in
+          python -m pip install --only-binary=:all: --require-hashes -r /tmp/coverage-requirements.lock
 
       - name: Run unit tests with coverage
         run: |
