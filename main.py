@@ -1343,6 +1343,16 @@ def accuracy_integrity_summary(history):
     return result
 
 
+def rsi_warning(rsi):
+    """Return a descriptive warning without changing the directional signal."""
+    value = float(rsi)
+    if not np.isfinite(value):
+        raise ValueError("RSI must be finite")
+    if value >= 80:
+        return "OVERBOUGHT — momentum is stretched; pullback risk is elevated"
+    return "No extreme RSI warning"
+
+
 def format_report(r, mtf_text="Not enough matching timeframe data"):
     if r["signal"] == "BULLISH":
         signal_display = "BULLISH OBSERVATION 🟢"
@@ -1365,6 +1375,7 @@ def format_report(r, mtf_text="Not enough matching timeframe data"):
         f"🔴 Bear score: <b>{r['bear_score']}/6</b>\n"
         f"💰 Last completed price: <code>{r['price']:.6f}</code>\n"
         f"📉 RSI (14): <b>{r['rsi']:.2f}</b>\n"
+        f"⚠️ RSI status: <b>{rsi_warning(r['rsi'])}</b>\n"
         f"📊 ADX (14): <b>{r['adx']:.2f}</b>\n"
         f"〽️ MACD histogram: <code>{r['macd_hist']:.6f}</code>\n"
         f"🧭 Timeframe agreement: <b>{mtf_text}</b>\n\n"
@@ -1394,6 +1405,7 @@ def format_discord_report(r):
         f"EMA 21: {r['ema21']:.6f}\n"
         f"EMA 50: {r['ema50']:.6f}\n"
         f"RSI 14: {r['rsi']:.2f}\n"
+        f"RSI status: {rsi_warning(r['rsi'])}\n"
         f"MACD: {r['macd']:.6f}\n"
         f"MACD Signal: {r['macd_signal']:.6f}\n"
         f"MACD Histogram: {r['macd_hist']:.6f}\n"
