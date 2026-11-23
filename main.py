@@ -1344,12 +1344,14 @@ def accuracy_integrity_summary(history):
 
 
 def rsi_warning(rsi):
-    """Return a descriptive warning without changing the directional signal."""
+    """Describe extreme RSI conditions without changing the directional signal."""
     value = float(rsi)
     if not np.isfinite(value):
         raise ValueError("RSI must be finite")
-    if value >= 80:
-        return "OVERBOUGHT — momentum is stretched; pullback risk is elevated"
+    if value <= 30:
+        return "OVERSOLD — downside momentum is stretched; a rebound or continued weakness is possible"
+    if value >= 70:
+        return "OVERBOUGHT — upside momentum is stretched; a pullback or continued strength is possible"
     return "No extreme RSI warning"
 
 
