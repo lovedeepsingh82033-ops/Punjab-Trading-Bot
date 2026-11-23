@@ -577,7 +577,8 @@ def historical_backtest(df, horizon_bars=3):
     if not observations:
         return {
             "samples": 0, "hit_rate": None, "avg_move_pct": None,
-            "median_move_pct": None, "overlap_policy": "NON_OVERLAPPING_HORIZON",
+            "median_move_pct": None,
+            "overlap_policy": "NON_OVERLAPPING_HORIZON",
         "entry_policy": "NEXT_CANDLE_OPEN_TO_HORIZON_CLOSE",
         }
     values = np.asarray(observations, dtype=float)
