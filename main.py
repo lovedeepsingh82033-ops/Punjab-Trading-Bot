@@ -526,13 +526,24 @@ def historical_backtest(df, horizon_bars=3):
     """
     Chronological out-of-sample holdout test of the fixed indicator rules.
     The first 70% is reserved as history; only the final 30% is scored.
-    This measures directional movement, not net profit or future certainty.
+    Qualifying outcome windows are non-overlapping. Signals are evaluated at
+    candle close, entered at the next candle open, and measured to the
+    horizon candle close. This measures directional movement, not net
+    profit, costs, or future certainty.
     """
+    if not isinstance(horizon_bars, int) or isinstance(horizon_bars, bool) or horizon_bars < 1:
+        raise ValueError("horizon_bars must be a positive integer")
+
     observations = []
     required = ["ema9", "ema21", "ema50", "rsi", "macd", "macd_signal",
                 "macd_hist", "adx", "plus_di", "minus_di"]
     test_start = max(50, int(len(df) * 0.70))
+    next_eligible_index = test_start
     for i in range(test_start, len(df) - horizon_bars):
+        # Keep scored outcome windows disjoint: after selecting a signal,
+        # skip the next horizon_bars possible entry candles.
+        if i < next_eligible_index:
+            continue
         row = df.iloc[i]
         if any(pd.isna(row[key]) for key in required):
             continue
@@ -551,16 +562,33 @@ def historical_backtest(df, horizon_bars=3):
             direction = "BEARISH"
         if direction is None:
             continue
-        entry, future = float(row["close"]), float(df.iloc[i + horizon_bars]["close"])
+        # The signal is known only after candle i closes. Model entry at the
+        # next candle open, then measure through the horizon candle close.
+        entry, future = (
+            float(df.iloc[i + 1]["open"]),
+            float(df.iloc[i + horizon_bars]["close"]),
+        )
         if not np.isfinite(entry) or entry <= 0 or not np.isfinite(future):
             continue
         move = (future - entry) / entry * 100
         observations.append(move if direction == "BULLISH" else -move)
+        next_eligible_index = i + horizon_bars
+
     if not observations:
-        return {"samples": 0, "hit_rate": None, "avg_move_pct": None, "median_move_pct": None}
+        return {
+            "samples": 0, "hit_rate": None, "avg_move_pct": None,
+            "median_move_pct": None, "overlap_policy": "NON_OVERLAPPING_HORIZON",
+        "entry_policy": "NEXT_CANDLE_OPEN_TO_HORIZON_CLOSE",
+        }
     values = np.asarray(observations, dtype=float)
-    return {"samples": len(values), "hit_rate": float((values > 0).mean() * 100),
-            "avg_move_pct": float(values.mean()), "median_move_pct": float(np.median(values))}
+    return {
+        "samples": len(values),
+        "hit_rate": float((values > 0).mean() * 100),
+        "avg_move_pct": float(values.mean()),
+        "median_move_pct": float(np.median(values)),
+        "overlap_policy": "NON_OVERLAPPING_HORIZON",
+            "entry_policy": "NEXT_CANDLE_OPEN_TO_HORIZON_CLOSE",
+    }
 
 
 def analyze(symbol, timeframe, interval, as_of=None):
@@ -1595,13 +1623,14 @@ def main():
         f"{market_lines}\n\n"
         "<b>Accuracy by Timeframe</b>\n"
         f"{timeframe_lines}\n\n"
-        "<b>Base-rule Rolling Holdout Sample (not MTF-filtered; final 30%, exact 3-candle horizon)</b>\n"
+        "<b>Base-rule Non-overlapping Holdout Sample (not MTF-filtered; final 30%, exact 3-candle horizon)</b>\n"
         f"{backtest_text}\n\n"
-        "<i>Accuracy includes only observations evaluated at exactly "
+        "<i>Backtest samples use non-overlapping exact 3-candle outcome windows. "
+        "Persisted accuracy includes only observations evaluated at exactly "
         "the third subsequent completed candle. Older variable-horizon "
         "results are excluded. Flat outcomes are excluded from hit rate. "
-        "This is historical direction testing, not verified profitability. "
-        "No orders were placed.</i>"
+        "This is historical direction testing, not verified profitability; "
+        "spread, slippage, and fees are not included. No orders were placed.</i>"
     )
 
     telegram(summary)
@@ -1633,9 +1662,11 @@ def main():
         f"{timeframe_lines}\n\n"
         "**Base-rule Rolling Holdout Sample (not MTF-filtered; final 30%, exact 3-candle horizon)**\n"
         f"{backtest_text}\n\n"
-        "*Accuracy includes only exact third-candle evaluations. Older "
-        "variable-horizon results are excluded. Hit rate excludes flats. "
-        "This is not verified profitability. No orders were placed.*"
+        "*Backtest samples use next-candle-open entry and non-overlapping exact 3-candle outcome windows. "
+        "Persisted accuracy includes only exact third-candle evaluations. "
+        "Older variable-horizon results are excluded. Hit rate excludes flats. "
+        "Spread, slippage, and fees are not included; this is not verified "
+        "profitability. No orders were placed.*"
     )
 
 
