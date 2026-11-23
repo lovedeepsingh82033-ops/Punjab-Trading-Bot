@@ -1389,17 +1389,9 @@ def main():
             "Missing Telegram secrets: TELEGRAM_TOKEN or CHAT_ID."
         )
 
-    # Save Twelve Data daily credits: scheduled scans run every 2 hours.
-    # Manual workflow_dispatch runs are still allowed at any time.
-    event_name = os.getenv("GITHUB_EVENT_NAME", "")
-    current_utc_hour = datetime.now(timezone.utc).hour
-
-    if event_name == "schedule" and current_utc_hour % 2 == 1:
-        logging.info(
-            "Scheduled scan skipped to conserve API credits. "
-            "The next scheduled scan is in the next even UTC hour."
-        )
-        return
+    # The workflow cron already limits scheduled scans to every 2 hours.
+    # Do not re-check the current UTC hour here: GitHub may delay scheduled
+    # workflow starts, which could incorrectly skip a valid scheduled run.
 
     history = load_history()
     # Freeze the data boundary before the first API request. Every market and
