@@ -26,12 +26,20 @@ def volatility_context(df, window=100, minimum_samples=30):
         & (recent["close"] > 0)
         & (recent["atr"] > 0)
     )
+    if not bool(valid.iloc[-1]):
+        raise ValueError("Latest candle has invalid close or ATR data")
     atr_pct = (recent.loc[valid, "atr"] / recent.loc[valid, "close"]) * 100.0
     if len(atr_pct) < minimum_samples:
         raise ValueError("Not enough valid candles for volatility context")
 
     current = float(atr_pct.iloc[-1])
-    percentile = float((atr_pct <= current).mean() * 100.0)
+    less = int((atr_pct.iloc[:-1] < current).sum())
+    equal = int((atr_pct.iloc[:-1] == current).sum())
+    historical_count = len(atr_pct) - 1
+    percentile = (
+        float((less + 0.5 * equal) / historical_count * 100.0)
+        if historical_count > 0 else 50.0
+    )
     if not np.isfinite(current) or not np.isfinite(percentile):
         raise ValueError("Volatility context is not finite")
 
