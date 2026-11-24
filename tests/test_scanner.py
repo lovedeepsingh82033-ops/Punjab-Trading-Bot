@@ -508,3 +508,36 @@ class RsiWarningTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
                     main.rsi_warning(value)
+
+
+
+class SignalMomentumContextTests(unittest.TestCase):
+    def test_rsi_overbought_retreat(self):
+        self.assertEqual(main.rsi_momentum_status(68.0, 72.75), "Cooling below overbought")
+
+    def test_rsi_overbought_still_rising(self):
+        self.assertEqual(main.rsi_momentum_status(73.0, 72.75), "OVERBOUGHT — RSI still rising")
+
+    def test_rsi_overbought_easing(self):
+        self.assertEqual(main.rsi_momentum_status(71.0, 74.0), "OVERBOUGHT — RSI easing")
+
+    def test_rsi_recovery_from_oversold(self):
+        self.assertEqual(main.rsi_momentum_status(32.0, 28.0), "Recovering above oversold")
+
+    def test_positive_macd_histogram_strengthening(self):
+        self.assertEqual(main.macd_momentum_status(0.002, 0.001), "Bullish momentum strengthening")
+
+    def test_positive_macd_histogram_weakening(self):
+        self.assertEqual(main.macd_momentum_status(0.001, 0.002), "Bullish momentum weakening")
+
+    def test_negative_macd_histogram_strengthening(self):
+        self.assertEqual(main.macd_momentum_status(-0.002, -0.001), "Bearish momentum strengthening")
+
+    def test_negative_macd_histogram_weakening(self):
+        self.assertEqual(main.macd_momentum_status(-0.001, -0.002), "Bearish momentum weakening")
+
+    def test_non_finite_values_are_rejected(self):
+        for function in (main.rsi_momentum_status, main.macd_momentum_status):
+            with self.subTest(function=function.__name__):
+                with self.assertRaises(ValueError):
+                    function(float("nan"), 1.0)
