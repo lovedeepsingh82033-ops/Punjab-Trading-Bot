@@ -52,6 +52,9 @@ jobs:
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
+          BOT_STATE_BRIDGE_URL: ${{ secrets.BOT_STATE_BRIDGE_URL }}
+          BOT_STATE_BRIDGE_KEY: ${{ secrets.BOT_STATE_BRIDGE_KEY }}
+          BOT_STATE_BRIDGE_BUCKET: ${{ secrets.BOT_STATE_BRIDGE_BUCKET }}
         run: python main.py
 
       - name: Upload signal history artifact
