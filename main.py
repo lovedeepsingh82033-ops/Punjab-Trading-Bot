@@ -20,6 +20,7 @@ from economic_calendar import economic_calendar_context
 from research_dashboard import advanced_research_dashboard, format_research_dashboard
 from intelligence_hub import build_intelligence_hub, format_intelligence_hub
 from bot_state import write_bot_snapshot
+from snapshot_bridge import upload_snapshot
 
 # Punjab Market Scanner
 # Educational market-data observations only.
@@ -1848,6 +1849,8 @@ def main():
             calendar_context=calendar_context,
             scan_results=scan_results,
         )
+        if upload_snapshot():
+            logging.info("Super Bot snapshot uploaded to the private state bridge.")
     except (OSError, TypeError, ValueError) as exc:
         logging.warning(
             "Super Bot snapshot could not be written (%s).",
