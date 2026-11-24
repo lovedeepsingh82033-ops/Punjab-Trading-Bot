@@ -25,6 +25,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Restore persistent signal history
+        run: |
+          git fetch origin signal-history
+          git show origin/signal-history:signal_history.csv > signal_history.csv
+
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
@@ -64,9 +69,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout repository
+      - name: Checkout persistent history branch
         uses: actions/checkout@v7
         with:
+          ref: signal-history
           persist-credentials: false
 
       - name: Download signal history artifact
@@ -88,5 +94,5 @@ jobs:
             echo "No new history records to commit."
           else
             git commit -m "Update market signal history"
-            git push
+            git push origin HEAD:signal-history
           fi
