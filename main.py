@@ -15,6 +15,7 @@ from institutional_research import quantitative_research_context, risk_managemen
 from advanced_research import anomaly_research_context, cross_market_correlation_context
 from data_quality import data_quality_context
 from walk_forward import walk_forward_research_context
+from scanner_health import scanner_health_context
 
 # Punjab Market Scanner
 # Educational market-data observations only.
@@ -1740,6 +1741,15 @@ def main():
     ]
     backtest_text = "\n".join(backtest_lines) if backtest_lines else "Not enough historical samples yet"
 
+    scanner_health = scanner_health_context(
+        expected_analyses=len(SYMBOLS) * len(TIMEFRAMES),
+        completed_analyses=checked,
+        processing_errors=errors,
+        api_rate_limited=API_RATE_LIMITED,
+        telegram_deliveries=telegram_sent,
+        discord_deliveries=discord_sent,
+    )
+
     summary = (
         "<b>Punjab Scan Complete</b>\n\n"
         f"Markets: {len(SYMBOLS)}\n"
@@ -1749,6 +1759,10 @@ def main():
         f"Telegram updates sent: {telegram_sent}\n"
         f"Discord updates sent: {discord_sent}\n"
         f"Data/processing issues: {errors}\n"
+        f"Scanner health: {scanner_health['status']} — {scanner_health['completion_pct']:.1f}% complete; "
+        f"{scanner_health['completed_analyses']}/{scanner_health['expected_analyses']} analyses; "
+        f"errors={scanner_health['processing_errors']}; API rate limited={scanner_health['api_rate_limited']}\n"
+        f"Successful notification deliveries: Telegram={scanner_health['telegram_deliveries']}, Discord={scanner_health['discord_deliveries']}\n"
         f"Past observations evaluated this scan: {outcomes_evaluated}\n"
         f"MTF blocked: {mtf_blocked} | incomplete: {mtf_incomplete}\n"
         f"MTF candidates: {mtf_diagnostics['candidates']} | passed: {mtf_diagnostics['passed']} | blocked: {mtf_diagnostics['blocked']} | incomplete: {mtf_diagnostics['incomplete']}\n"
