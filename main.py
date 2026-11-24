@@ -603,6 +603,7 @@ def analyze(symbol, timeframe, interval, as_of=None):
     df = add_indicators(df)
     backtest = historical_backtest(df, horizon_bars=3)
     row = df.iloc[-1]
+    previous_row = df.iloc[-2]
 
     required = [
         "ema9", "ema21", "ema50",
@@ -693,9 +694,11 @@ def analyze(symbol, timeframe, interval, as_of=None):
         "ema21": ema21,
         "ema50": ema50,
         "rsi": rsi,
+        "rsi_momentum": rsi_momentum_status(rsi, float(previous_row["rsi"])),
         "macd": macd,
         "macd_signal": macd_signal,
         "macd_hist": macd_hist,
+        "macd_momentum": macd_momentum_status(macd_hist, float(previous_row["macd_hist"])),
         "adx": adx,
         "atr": atr,
         "plus_di": plus_di,
@@ -1343,6 +1346,58 @@ def accuracy_integrity_summary(history):
     return result
 
 
+def rsi_momentum_status(current, previous):
+    """Describe RSI movement using the latest two completed candles."""
+    current, previous = float(current), float(previous)
+    if not np.isfinite(current) or not np.isfinite(previous):
+        raise ValueError("RSI values must be finite")
+    if current >= 70:
+        if current < previous:
+            return "OVERBOUGHT — RSI easing"
+        if current > previous:
+            return "OVERBOUGHT — RSI still rising"
+        return "OVERBOUGHT — RSI unchanged"
+    if previous >= 70:
+        return "Cooling below overbought"
+    if current <= 30:
+        if current > previous:
+            return "OVERSOLD — RSI recovering"
+        if current < previous:
+            return "OVERSOLD — RSI still falling"
+        return "OVERSOLD — RSI unchanged"
+    if previous <= 30:
+        return "Recovering above oversold"
+    if current > previous:
+        return "RSI rising"
+    if current < previous:
+        return "RSI falling"
+    return "RSI unchanged"
+
+
+def macd_momentum_status(current, previous):
+    """Describe MACD histogram momentum change across completed candles."""
+    current, previous = float(current), float(previous)
+    if not np.isfinite(current) or not np.isfinite(previous):
+        raise ValueError("MACD histogram values must be finite")
+    if current > 0:
+        if current > previous:
+            return "Bullish momentum strengthening"
+        if current < previous:
+            return "Bullish momentum weakening"
+        return "Bullish momentum steady"
+    if current < 0:
+        if current < previous:
+            return "Bearish momentum strengthening"
+        if current > previous:
+            return "Bearish momentum weakening"
+        return "Bearish momentum steady"
+    if current > previous:
+        return "Bullish momentum emerging"
+    if current < previous:
+        return "Bearish momentum emerging"
+    return "MACD momentum neutral"
+
+
 def rsi_warning(rsi):
     """Describe extreme RSI conditions without changing the directional signal."""
     value = float(rsi)
@@ -1378,8 +1433,10 @@ def format_report(r, mtf_text="Not enough matching timeframe data"):
         f"💰 Last completed price: <code>{r['price']:.6f}</code>\n"
         f"📉 RSI (14): <b>{r['rsi']:.2f}</b>\n"
         f"⚠️ RSI status: <b>{rsi_warning(r['rsi'])}</b>\n"
+        f"↕️ RSI momentum: <b>{r['rsi_momentum']}</b>\n"
         f"📊 ADX (14): <b>{r['adx']:.2f}</b>\n"
         f"〽️ MACD histogram: <code>{r['macd_hist']:.6f}</code>\n"
+        f"📈 MACD momentum: <b>{r['macd_momentum']}</b>\n"
         f"🧭 Timeframe agreement: <b>{mtf_text}</b>\n\n"
         f"🕒 Candle: {r['candle_time']}\n"
         "━━━━━━━━━━━━━━━━━━\n"
@@ -1408,9 +1465,11 @@ def format_discord_report(r):
         f"EMA 50: {r['ema50']:.6f}\n"
         f"RSI 14: {r['rsi']:.2f}\n"
         f"RSI status: {rsi_warning(r['rsi'])}\n"
+        f"RSI momentum: {r['rsi_momentum']}\n"
         f"MACD: {r['macd']:.6f}\n"
         f"MACD Signal: {r['macd_signal']:.6f}\n"
         f"MACD Histogram: {r['macd_hist']:.6f}\n"
+        f"MACD momentum: {r['macd_momentum']}\n"
         f"ADX 14: {r['adx']:.2f}\n"
         f"ATR 14: {r['atr']:.6f}\n"
         f"Support reference: {r['support']:.6f}\n"
