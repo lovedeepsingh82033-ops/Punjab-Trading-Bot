@@ -7,6 +7,8 @@ import requests
 import pandas as pd
 import numpy as np
 
+from market_context import volatility_context
+
 # Punjab Market Scanner
 # Educational market-data observations only.
 # No trading instructions, broker connection, or order placement.
@@ -601,6 +603,7 @@ def analyze(symbol, timeframe, interval, as_of=None):
         )
 
     df = add_indicators(df)
+    volatility = volatility_context(df)
     backtest = historical_backtest(df, horizon_bars=3)
     row = df.iloc[-1]
     previous_row = df.iloc[-2]
@@ -701,6 +704,7 @@ def analyze(symbol, timeframe, interval, as_of=None):
         "macd_momentum": macd_momentum_status(macd_hist, float(previous_row["macd_hist"])),
         "adx": adx,
         "atr": atr,
+        "volatility": volatility,
         "plus_di": plus_di,
         "minus_di": minus_di,
         "support": float(row["support"]),
@@ -1435,6 +1439,7 @@ def format_report(r, mtf_text="Not enough matching timeframe data"):
         f"⚠️ RSI status: <b>{rsi_warning(r['rsi'])}</b>\n"
         f"↕️ RSI momentum: <b>{r['rsi_momentum']}</b>\n"
         f"📊 ADX (14): <b>{r['adx']:.2f}</b>\n"
+        f"🌡️ Volatility: <b>{r['volatility']['regime']}</b> — ATR {r['volatility']['atr_pct']:.3f}% of price; {r['volatility']['percentile']:.0f}th percentile (100 candles)\n"
         f"〽️ MACD histogram: <code>{r['macd_hist']:.6f}</code>\n"
         f"📈 MACD momentum: <b>{r['macd_momentum']}</b>\n"
         f"🧭 Timeframe agreement: <b>{mtf_text}</b>\n\n"
@@ -1472,6 +1477,7 @@ def format_discord_report(r):
         f"MACD momentum: {r['macd_momentum']}\n"
         f"ADX 14: {r['adx']:.2f}\n"
         f"ATR 14: {r['atr']:.6f}\n"
+        f"Volatility context: {r['volatility']['regime']} — ATR {r['volatility']['atr_pct']:.3f}% of price; {r['volatility']['percentile']:.0f}th percentile (100 candles)\n"
         f"Support reference: {r['support']:.6f}\n"
         f"Resistance reference: {r['resistance']:.6f}\n\n"
         f"Candle time: {r['candle_time']}\n\n"
