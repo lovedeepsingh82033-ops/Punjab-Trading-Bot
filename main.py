@@ -1838,15 +1838,21 @@ def main():
     )
     telegram(format_intelligence_hub(intelligence_report))
 
-    # Compact, secret-free snapshot consumed by the separate read-only Telegram bot.
-    write_bot_snapshot(
-        scan_cutoff=scan_cutoff,
-        scanner_health=scanner_health,
-        dashboard=dashboard_data,
-        intelligence=intelligence_report,
-        calendar_context=calendar_context,
-        scan_results=scan_results,
-    )
+    # Snapshot generation is best-effort and must never interrupt legacy reports.
+    try:
+        write_bot_snapshot(
+            scan_cutoff=scan_cutoff,
+            scanner_health=scanner_health,
+            dashboard=dashboard_data,
+            intelligence=intelligence_report,
+            calendar_context=calendar_context,
+            scan_results=scan_results,
+        )
+    except (OSError, TypeError, ValueError) as exc:
+        logging.warning(
+            "Super Bot snapshot could not be written (%s).",
+            type(exc).__name__,
+        )
 
     research_lines = [
         "<b>Cross-Market Research (historical correlation)</b>",
