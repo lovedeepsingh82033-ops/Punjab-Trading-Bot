@@ -1,5 +1,6 @@
 """Atomic, compact snapshot writer for the read-only Telegram bot."""
 import json
+import math
 import os
 import tempfile
 from datetime import date, datetime
@@ -10,7 +11,7 @@ def _safe(value, depth=0):
     if depth > 7:
         return "[truncated]"
     if value is None or isinstance(value, (str, int, float, bool)):
-        if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+        if isinstance(value, float) and not math.isfinite(value):
             return None
         return value
     if isinstance(value, (datetime, date)):
