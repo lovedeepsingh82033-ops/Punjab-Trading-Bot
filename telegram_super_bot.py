@@ -7,6 +7,8 @@ from pathlib import Path
 
 import requests
 
+from snapshot_bridge import download_snapshot
+
 TOKEN = os.getenv("SUPER_BOT_TOKEN", "").strip()
 ALLOWED_IDS = {x.strip() for x in os.getenv("SUPER_BOT_ALLOWED_USER_IDS", "").split(",") if x.strip()}
 STATE_PATH = Path(os.getenv("BOT_STATE_PATH", "bot_state.json"))
@@ -16,6 +18,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 
 def load_state():
+    # Prefer the private shared snapshot; retain local-file fallback for development.
+    try:
+        shared_state = download_snapshot()
+        if shared_state is not None:
+            return shared_state
+    except requests.RequestException as exc:
+        logging.warning("Shared snapshot unavailable (%s).", type(exc).__name__)
     try:
         with STATE_PATH.open(encoding="utf-8") as stream:
             state = json.load(stream)
