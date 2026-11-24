@@ -1,6 +1,8 @@
 import os
 import time
 import logging
+import html
+import re
 from datetime import datetime, timezone, timedelta
 
 import requests
@@ -99,34 +101,70 @@ def get_retry_after(response):
         return 60
 
 
+def telegram_plain_text(message):
+    # Convert the existing HTML-formatted report to readable plain text.
+    text = re.sub(
+        r'<a\s+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+        r'\2 (\1)',
+        str(message),
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</(?:b|strong|i|em|u|code|pre)>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"<(?:b|strong|i|em|u|code|pre)[^>]*>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    return html.unescape(text).strip()
+
+
+def split_telegram_text(message, limit=3900):
+    # Stay below Telegram's 4096-character sendMessage limit.
+    chunks = []
+    current = ""
+    for line in message.splitlines():
+        while len(line) > limit:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.append(line[:limit])
+            line = line[limit:]
+        candidate = line if not current else current + "\n" + line
+        if len(candidate) > limit:
+            if current:
+                chunks.append(current)
+            current = line
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks or [""]
+
+
 def telegram(message, reply_markup=None):
     if not TOKEN or not CHAT_ID:
         logging.warning("Telegram secrets are missing.")
         return False
 
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": message,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True,
-    }
-    if reply_markup is not None:
-        payload["reply_markup"] = reply_markup
+    chunks = split_telegram_text(telegram_plain_text(message))
 
     try:
-        response = session.post(
-            url,
-            json=payload,
-            timeout=25,
-        )
-        response.raise_for_status()
-        result = response.json()
+        for index, chunk in enumerate(chunks):
+            payload = {
+                "chat_id": CHAT_ID,
+                "text": chunk,
+                "disable_web_page_preview": True,
+            }
+            if reply_markup is not None and index == len(chunks) - 1:
+                payload["reply_markup"] = reply_markup
 
-        if not result.get("ok"):
-            # Do not log API-provided descriptions or response payloads.
-            logging.error("Telegram API rejected the message (ok=false).")
-            return False
+            response = session.post(url, json=payload, timeout=25)
+            response.raise_for_status()
+            result = response.json()
+
+            if not result.get("ok"):
+                # Do not log API-provided descriptions or response payloads.
+                logging.error("Telegram API rejected the message (ok=false).")
+                return False
 
         return True
 
