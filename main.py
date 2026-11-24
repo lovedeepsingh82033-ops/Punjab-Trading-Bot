@@ -16,6 +16,8 @@ from advanced_research import anomaly_research_context, cross_market_correlation
 from data_quality import data_quality_context
 from walk_forward import walk_forward_research_context
 from scanner_health import scanner_health_context
+from economic_calendar import economic_calendar_context
+from research_dashboard import advanced_research_dashboard, format_research_dashboard
 
 # Punjab Market Scanner
 # Educational market-data observations only.
@@ -1750,6 +1752,13 @@ def main():
         discord_deliveries=discord_sent,
     )
 
+    calendar_context = economic_calendar_context(
+        path="economic_calendar.csv",
+        as_of=scan_cutoff,
+        symbols=SYMBOLS,
+        lookahead_hours=24,
+    )
+
     summary = (
         "<b>Punjab Scan Complete</b>\n\n"
         f"Markets: {len(SYMBOLS)}\n"
@@ -1800,6 +1809,25 @@ def main():
         item.get("anomaly_research", {}).get("status") == "UNUSUAL OBSERVATION"
         for item in scan_results
     )
+    correlations_by_timeframe = {}
+    for timeframe in TIMEFRAMES:
+        timeframe_series = {
+            item["symbol"]: item["_candles"]
+            for item in scan_results
+            if item["timeframe"] == timeframe
+        }
+        correlations_by_timeframe[timeframe] = cross_market_correlation_context(
+            timeframe_series, minimum_samples=30
+        )
+
+    dashboard_data = advanced_research_dashboard(
+        scan_results,
+        correlations_by_timeframe,
+        calendar_context=calendar_context,
+        scanner_health=scanner_health,
+    )
+    telegram(format_research_dashboard(dashboard_data))
+
     research_lines = [
         "<b>Cross-Market Research (historical correlation)</b>",
         "Correlation is descriptive, not causation or a forecast.",
@@ -1810,9 +1838,7 @@ def main():
             for item in scan_results
             if item["timeframe"] == timeframe
         }
-        correlation = cross_market_correlation_context(
-            timeframe_series, minimum_samples=30
-        )
+        correlation = correlations_by_timeframe[timeframe]
         top_pairs = correlation["pairs"][:3]
         if top_pairs:
             pair_text = "; ".join(
