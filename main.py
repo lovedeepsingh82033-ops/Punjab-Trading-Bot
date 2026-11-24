@@ -19,6 +19,7 @@ from scanner_health import scanner_health_context
 from economic_calendar import economic_calendar_context
 from research_dashboard import advanced_research_dashboard, format_research_dashboard
 from intelligence_hub import build_intelligence_hub, format_intelligence_hub
+from bot_state import write_bot_snapshot
 
 # Punjab Market Scanner
 # Educational market-data observations only.
@@ -1836,6 +1837,22 @@ def main():
         calendar_context=calendar_context,
     )
     telegram(format_intelligence_hub(intelligence_report))
+
+    # Snapshot generation is best-effort and must never interrupt legacy reports.
+    try:
+        write_bot_snapshot(
+            scan_cutoff=scan_cutoff,
+            scanner_health=scanner_health,
+            dashboard=dashboard_data,
+            intelligence=intelligence_report,
+            calendar_context=calendar_context,
+            scan_results=scan_results,
+        )
+    except (OSError, TypeError, ValueError) as exc:
+        logging.warning(
+            "Super Bot snapshot could not be written (%s).",
+            type(exc).__name__,
+        )
 
     research_lines = [
         "<b>Cross-Market Research (historical correlation)</b>",
