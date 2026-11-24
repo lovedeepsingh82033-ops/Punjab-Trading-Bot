@@ -23,7 +23,7 @@ def load_state():
         shared_state = download_snapshot()
         if shared_state is not None:
             return shared_state
-    except requests.RequestException as exc:
+    except (requests.RequestException, ValueError) as exc:
         logging.warning("Shared snapshot unavailable (%s).", type(exc).__name__)
     try:
         with STATE_PATH.open(encoding="utf-8") as stream:
