@@ -18,6 +18,7 @@ from walk_forward import walk_forward_research_context
 from scanner_health import scanner_health_context
 from economic_calendar import economic_calendar_context
 from research_dashboard import advanced_research_dashboard, format_research_dashboard
+from intelligence_hub import build_intelligence_hub, format_intelligence_hub
 
 # Punjab Market Scanner
 # Educational market-data observations only.
@@ -1827,6 +1828,14 @@ def main():
         scanner_health=scanner_health,
     )
     telegram(format_research_dashboard(dashboard_data))
+
+    intelligence_report = build_intelligence_hub(
+        dashboard_data,
+        scan_results,
+        scanner_health,
+        calendar_context=calendar_context,
+    )
+    telegram(format_intelligence_hub(intelligence_report))
 
     research_lines = [
         "<b>Cross-Market Research (historical correlation)</b>",
