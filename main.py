@@ -13,6 +13,7 @@ from market_context import volatility_context
 from research_context import market_regime_context
 from institutional_research import quantitative_research_context, risk_management_context, algorithmic_system_context, validation_context
 from advanced_research import anomaly_research_context, cross_market_correlation_context
+from data_quality import data_quality_context
 
 # Punjab Market Scanner
 # Educational market-data observations only.
@@ -644,6 +645,10 @@ def analyze(symbol, timeframe, interval, as_of=None):
         )
 
     df = add_indicators(df)
+    quality = data_quality_context(
+        df, timeframe_minutes=TIMEFRAMES[timeframe][1],
+        as_of=as_of or datetime.now(timezone.utc),
+    )
     volatility = volatility_context(df)
     regime = market_regime_context(df)
     quantitative = quantitative_research_context(df)
@@ -752,6 +757,7 @@ def analyze(symbol, timeframe, interval, as_of=None):
         "adx": adx,
         "atr": atr,
         "volatility": volatility,
+        "data_quality": quality,
         "market_regime": regime,
         "quantitative_research": quantitative,
         "risk_context": risk_context,
@@ -1537,6 +1543,7 @@ def format_discord_report(r):
         f"Market regime: {r['market_regime']['label']} — {r['market_regime']['detail']}\n"
         f"Quant research: {r['quantitative_research']['sample_count']} returns; volatility {r['quantitative_research']['return_volatility_pct']:.3f}% (descriptive)\n"
         f"Risk research: historical max drawdown {r['risk_context']['max_drawdown_pct']:.2f}%; 95th percentile absolute move {r['risk_context']['return_p95_abs_pct']:.3f}%\n"
+        f"Data quality: {r['data_quality']['status']} — {r['data_quality']['checks_passed']}/{r['data_quality']['checks_total']} checks; {r['data_quality']['invalid_rows']} invalid rows; {r['data_quality']['duplicate_timestamps']} duplicates\n"
         f"Algorithmic system: {r['algorithmic_system']['status']} — {r['algorithmic_system']['detail']}\n"
         f"Testing/validation: {r['validation']['status']} — {r['validation']['detail']}\n"
         f"ATR 14: {r['atr']:.6f}\n"
