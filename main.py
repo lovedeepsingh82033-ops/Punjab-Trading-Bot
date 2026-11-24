@@ -10,6 +10,7 @@ import numpy as np
 from market_context import volatility_context
 from research_context import market_regime_context
 from institutional_research import quantitative_research_context, risk_management_context, algorithmic_system_context, validation_context
+from advanced_research import anomaly_research_context, cross_market_correlation_context
 
 # Punjab Market Scanner
 # Educational market-data observations only.
@@ -612,6 +613,7 @@ def analyze(symbol, timeframe, interval, as_of=None):
     algorithmic = algorithmic_system_context(df)
     backtest = historical_backtest(df, horizon_bars=3)
     validation = validation_context(backtest)
+    anomaly = anomaly_research_context(df)
     row = df.iloc[-1]
     previous_row = df.iloc[-2]
 
@@ -717,6 +719,7 @@ def analyze(symbol, timeframe, interval, as_of=None):
         "risk_context": risk_context,
         "algorithmic_system": algorithmic,
         "validation": validation,
+        "anomaly_research": anomaly,
         "plus_di": plus_di,
         "minus_di": minus_di,
         "support": float(row["support"]),
@@ -1575,11 +1578,10 @@ def main():
                 if is_new:
                     new_records += 1
 
-                    # Send only clear BUY/SELL observations.
-                    # Neutral analyses remain in history but do not
-                    # generate a Telegram or Discord signal message.
-                    if result["signal"] in ("BULLISH", "BEARISH"):
-                        pending_notifications.append(result)
+                    # Keep Telegram output research-only. Directional labels are
+                    # retained in offline history for software validation, but
+                    # are not sent as live buy/sell-style alerts.
+                    logging.info("Recorded non-actionable research observation for %s %s.", symbol, timeframe)
 
                 logging.info(
                     "%s %s: observation completed (new=%s)",
@@ -1728,6 +1730,45 @@ def main():
     )
 
     telegram(summary)
+
+    # Cross-market research is descriptive only and uses aligned completed-candle returns.
+    anomaly_count = sum(
+        item.get("anomaly_research", {}).get("status") == "UNUSUAL OBSERVATION"
+        for item in scan_results
+    )
+    research_lines = [
+        "<b>Cross-Market Research (historical correlation)</b>",
+        "Correlation is descriptive, not causation or a forecast.",
+    ]
+    for timeframe in TIMEFRAMES:
+        timeframe_series = {
+            item["symbol"]: item["_candles"]
+            for item in scan_results
+            if item["timeframe"] == timeframe
+        }
+        correlation = cross_market_correlation_context(
+            timeframe_series, minimum_samples=30
+        )
+        top_pairs = correlation["pairs"][:3]
+        if top_pairs:
+            pair_text = "; ".join(
+                f"{pair['symbol_a']} / {pair['symbol_b']}: "
+                f"{pair['correlation']:+.2f} (n={pair['samples']})"
+                for pair in top_pairs
+            )
+        else:
+            pair_text = "Insufficient aligned history"
+        research_lines.append(f"{timeframe}: {pair_text}")
+
+    research_lines.extend([
+        "",
+        "<b>Statistical Anomaly Diagnostics</b>",
+        f"Unusual historical observations: {anomaly_count}/{len(scan_results)}",
+        "Outlier flags describe unusually large historical returns; they do not predict direction.",
+        "",
+        "<i>Research context only. No buy/sell instructions or orders.</i>",
+    ])
+    telegram("\n".join(research_lines))
 
     discord(
         "**Punjab Scan Complete**\n\n"
