@@ -30,8 +30,13 @@ class EconomicCalendarTests(unittest.TestCase):
             path, as_of=datetime(2026, 11, 25, 12, tzinfo=timezone.utc),
             symbols=["EUR/USD"], lookahead_hours=24,
         )
-        self.assertEqual(result["count"], 1)
-        self.assertEqual(result["events"][0]["currency"], "USD")
+        # EUR/USD represents both currencies, so both matching events
+        # inside the requested time window should be included.
+        self.assertEqual(result["count"], 2)
+        self.assertEqual(
+            {event["currency"] for event in result["events"]},
+            {"EUR", "USD"},
+        )
         self.assertEqual(result["high_impact_count"], 1)
 
     def test_invalid_rows_are_skipped_and_counted(self):
