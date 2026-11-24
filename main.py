@@ -14,6 +14,7 @@ from research_context import market_regime_context
 from institutional_research import quantitative_research_context, risk_management_context, algorithmic_system_context, validation_context
 from advanced_research import anomaly_research_context, cross_market_correlation_context
 from data_quality import data_quality_context
+from walk_forward import walk_forward_research_context
 
 # Punjab Market Scanner
 # Educational market-data observations only.
@@ -656,6 +657,7 @@ def analyze(symbol, timeframe, interval, as_of=None):
     algorithmic = algorithmic_system_context(df)
     backtest = historical_backtest(df, horizon_bars=3)
     validation = validation_context(backtest)
+    walk_forward = walk_forward_research_context(df, folds=4, minimum_samples=10)
     anomaly = anomaly_research_context(df)
     row = df.iloc[-1]
     previous_row = df.iloc[-2]
@@ -763,6 +765,7 @@ def analyze(symbol, timeframe, interval, as_of=None):
         "risk_context": risk_context,
         "algorithmic_system": algorithmic,
         "validation": validation,
+        "walk_forward": walk_forward,
         "anomaly_research": anomaly,
         "plus_di": plus_di,
         "minus_di": minus_di,
@@ -1503,6 +1506,7 @@ def format_report(r, mtf_text="Not enough matching timeframe data"):
         f"🛡️ Risk research: historical max drawdown {r['risk_context']['max_drawdown_pct']:.2f}%; 95th percentile absolute move {r['risk_context']['return_p95_abs_pct']:.3f}%\n"
         f"⚙️ Algorithmic system: {r['algorithmic_system']['status']} — {r['algorithmic_system']['detail']}\n"
         f"🧪 Validation: {r['validation']['status']} — {r['validation']['detail']}\n"
+        f"🧭 Walk-forward research: {r['walk_forward']['status']} — {r['walk_forward']['detail']}\n"
         f"🌡️ Volatility: <b>{r['volatility']['regime']}</b> — ATR {r['volatility']['atr_pct']:.3f}% of price; {r['volatility']['percentile']:.0f}th percentile (100 candles)\n"
         f"〽️ MACD histogram: <code>{r['macd_hist']:.6f}</code>\n"
         f"📈 MACD momentum: <b>{r['macd_momentum']}</b>\n"
@@ -1546,6 +1550,7 @@ def format_discord_report(r):
         f"Data quality: {r['data_quality']['status']} — {r['data_quality']['checks_passed']}/{r['data_quality']['checks_total']} checks; {r['data_quality']['invalid_rows']} invalid rows; {r['data_quality']['duplicate_timestamps']} duplicates\n"
         f"Algorithmic system: {r['algorithmic_system']['status']} — {r['algorithmic_system']['detail']}\n"
         f"Testing/validation: {r['validation']['status']} — {r['validation']['detail']}\n"
+        f"Walk-forward research: {r['walk_forward']['status']} — {r['walk_forward']['detail']}\n"
         f"ATR 14: {r['atr']:.6f}\n"
         f"Volatility context: {r['volatility']['regime']} — ATR {r['volatility']['atr_pct']:.3f}% of price; {r['volatility']['percentile']:.0f}th percentile (100 candles)\n"
         f"Support reference: {r['support']:.6f}\n"
