@@ -38,7 +38,7 @@ def upload_snapshot(path="bot_state.json"):
         raise ValueError("Refusing to upload an invalid scanner snapshot.")
 
     base_url, key, bucket = config
-    response = requests.put(
+    response = requests.post(
         _object_url(base_url, bucket),
         headers={
             "apikey": key,
