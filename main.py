@@ -1768,7 +1768,7 @@ def main():
         "",
         "<i>Research context only. No buy/sell instructions or orders.</i>",
     ])
-    telegram("\\n".join(research_lines))
+    telegram("\n".join(research_lines))
 
     discord(
         "**Punjab Scan Complete**\n\n"
