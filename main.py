@@ -102,15 +102,14 @@ def get_retry_after(response):
 
 
 def telegram_plain_text(message):
-    # Telegram HTML parse errors were causing HTTP 400 responses. Convert the
-    # existing report markup to readable plain text before sending.
+    # Convert the existing HTML-formatted report to readable plain text.
     text = re.sub(
-        r'<a\\s+href=["\\']([^"\\']+)["\\'][^>]*>(.*?)</a>',
-        r'\\2 (\\1)',
+        r'<a\s+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+        r'\2 (\1)',
         str(message),
         flags=re.IGNORECASE | re.DOTALL,
     )
-    text = re.sub(r"<br\\s*/?>", "\\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
     text = re.sub(r"</(?:b|strong|i|em|u|code|pre)>", "", text, flags=re.IGNORECASE)
     text = re.sub(r"<(?:b|strong|i|em|u|code|pre)[^>]*>", "", text, flags=re.IGNORECASE)
     text = re.sub(r"<[^>]+>", "", text)
@@ -118,7 +117,7 @@ def telegram_plain_text(message):
 
 
 def split_telegram_text(message, limit=3900):
-    # Keep every Telegram sendMessage payload below the 4096-character limit.
+    # Stay below Telegram's 4096-character sendMessage limit.
     chunks = []
     current = ""
     for line in message.splitlines():
@@ -128,7 +127,7 @@ def split_telegram_text(message, limit=3900):
                 current = ""
             chunks.append(line[:limit])
             line = line[limit:]
-        candidate = line if not current else current + "\\n" + line
+        candidate = line if not current else current + "\n" + line
         if len(candidate) > limit:
             if current:
                 chunks.append(current)
@@ -155,7 +154,6 @@ def telegram(message, reply_markup=None):
                 "text": chunk,
                 "disable_web_page_preview": True,
             }
-            # Attach interactive controls only to the final message chunk.
             if reply_markup is not None and index == len(chunks) - 1:
                 payload["reply_markup"] = reply_markup
 
