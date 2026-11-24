@@ -1851,9 +1851,9 @@ def main():
         )
         if upload_snapshot():
             logging.info("Super Bot snapshot uploaded to the private state bridge.")
-    except (OSError, TypeError, ValueError) as exc:
+    except (OSError, TypeError, ValueError, requests.RequestException) as exc:
         logging.warning(
-            "Super Bot snapshot could not be written (%s).",
+            "Super Bot snapshot or bridge unavailable (%s).",
             type(exc).__name__,
         )
 
