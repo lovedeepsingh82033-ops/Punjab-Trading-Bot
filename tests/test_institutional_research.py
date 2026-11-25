@@ -33,10 +33,26 @@ class InstitutionalResearchTests(unittest.TestCase):
     def test_algorithmic_integrity_passes_valid_data(self):
         self.assertEqual(algorithmic_system_context(self.frame())["status"], "PASS")
 
-    def test_algorithmic_integrity_flags_duplicate_times(self):
+    def test_algorithmic_integrity_flags_duplicate_times_by_name(self):
         df = self.frame()
         df.loc[1, "datetime"] = df.loc[0, "datetime"]
-        self.assertEqual(algorithmic_system_context(df)["status"], "WARNING")
+        result = algorithmic_system_context(df)
+        self.assertEqual(result["status"], "WARNING")
+        self.assertIn("Timestamps unique", result["failed_checks"])
+
+    def test_algorithmic_integrity_flags_non_finite_indicator_by_name(self):
+        df = self.frame()
+        df.loc[2, "rsi"] = np.nan
+        result = algorithmic_system_context(df)
+        self.assertEqual(result["status"], "WARNING")
+        self.assertIn("EMA/RSI/MACD/ADX/ATR values finite", result["failed_checks"])
+
+    def test_algorithmic_integrity_flags_invalid_ohlc_by_name(self):
+        df = self.frame()
+        df.loc[2, "high"] = df.loc[2, "low"] - 1
+        result = algorithmic_system_context(df)
+        self.assertEqual(result["status"], "WARNING")
+        self.assertIn("OHLC values positive and internally consistent", result["failed_checks"])
 
     def test_validation_requires_minimum_holdout_sample(self):
         self.assertEqual(validation_context({"samples": 5})["status"], "INSUFFICIENT SAMPLE")
