@@ -1635,10 +1635,17 @@ def main():
                 if is_new:
                     new_records += 1
 
-                    # Keep Telegram output research-only. Directional labels are
-                    # retained in offline history for software validation, but
-                    # are not sent as live buy/sell-style alerts.
-                    logging.info("Recorded non-actionable research observation for %s %s.", symbol, timeframe)
+                    # Queue only newly recorded directional observations. The
+                    # MTF gate below decides whether an educational update is
+                    # eligible for delivery; repeated scans cannot resend the
+                    # same candle because save_new_record() rejects duplicates.
+                    if result.get("direction") in ("BULLISH", "BEARISH"):
+                        pending_notifications.append(result)
+
+                    logging.info(
+                        "Recorded research observation for %s %s (direction=%s).",
+                        symbol, timeframe, result.get("direction", "UNKNOWN")
+                    )
 
                 logging.info(
                     "%s %s: observation completed (new=%s)",
@@ -1671,8 +1678,12 @@ def main():
     # Freeze each signal's MTF cohort once; labels are not backfilled onto legacy data.
     history = label_mtf_cohorts(scan_results, history)
 
-    mtf_blocked = 0
-    mtf_incomplete = 0
+    # Report cohort counts for every directional candidate in this scan,
+    # not merely the newly recorded observations queued for notification.
+    mtf_diagnostics = mtf_diagnostic_summary(scan_results)
+    mtf_blocked = mtf_diagnostics["blocked"]
+    mtf_incomplete = mtf_diagnostics["incomplete"]
+
     for result in pending_notifications:
         same_market = [
             item for item in scan_results
@@ -1681,10 +1692,6 @@ def main():
         decision = mtf_decision(result, same_market)
 
         if not decision["passed"]:
-            if decision["cohort"] == "INCOMPLETE":
-                mtf_incomplete += 1
-            else:
-                mtf_blocked += 1
             logging.info(
                 "MTF %s %s %s: %s (agreement=%s/%s, H1=%s, M30=%s)",
                 decision["cohort"], result["symbol"], result["timeframe"],
@@ -1730,8 +1737,8 @@ def main():
     integrity_warning_text = "; ".join(integrity["warnings"]) if integrity["warnings"] else "All totals reconcile; no duplicate keys detected"
     mtf_accuracy_text = "\n".join(mtf_accuracy.values())
     mtf_evidence_text = "\n".join(mtf_evidence_lines)
-    # Diagnostics must use the full scan (including neutral frames), not only new alerts.
-    mtf_diagnostics = mtf_diagnostic_summary(scan_results)
+    # Diagnostics were computed from the full scan above (including
+    # neutral frames), independently of the new-observation notification queue.
     mtf_reason_text = (
         "\n".join(f"{reason}: {count}" for reason, count in sorted(mtf_diagnostics["reasons"].items()))
         if mtf_diagnostics["reasons"] else "No directional candidates"
