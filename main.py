@@ -1512,6 +1512,7 @@ def format_report(r, mtf_text="Not enough matching timeframe data"):
         f"📐 Quant research: {r['quantitative_research']['sample_count']} returns; volatility {r['quantitative_research']['return_volatility_pct']:.3f}% (descriptive)\n"
         f"🛡️ Risk research: historical max drawdown {r['risk_context']['max_drawdown_pct']:.2f}%; 95th percentile absolute move {r['risk_context']['return_p95_abs_pct']:.3f}%\n"
         f"⚙️ Algorithmic system: {r['algorithmic_system']['status']} — {r['algorithmic_system']['detail']}\n"
+        + (f"   Failed checks: {', '.join(r['algorithmic_system'].get('failed_checks', []))}\n" if r['algorithmic_system'].get('failed_checks') else "")
         f"🧪 Validation: {r['validation']['status']} — {r['validation']['detail']}\n"
         f"🧭 Walk-forward research: {r['walk_forward']['status']} — {r['walk_forward']['detail']}\n"
         f"🌡️ Volatility: <b>{r['volatility']['regime']}</b> — ATR {r['volatility']['atr_pct']:.3f}% of price; {r['volatility']['percentile']:.0f}th percentile (100 candles)\n"
@@ -1556,6 +1557,7 @@ def format_discord_report(r):
         f"Risk research: historical max drawdown {r['risk_context']['max_drawdown_pct']:.2f}%; 95th percentile absolute move {r['risk_context']['return_p95_abs_pct']:.3f}%\n"
         f"Data quality: {r['data_quality']['status']} — {r['data_quality']['checks_passed']}/{r['data_quality']['checks_total']} checks; {r['data_quality']['invalid_rows']} invalid rows; {r['data_quality']['duplicate_timestamps']} duplicates\n"
         f"Algorithmic system: {r['algorithmic_system']['status']} — {r['algorithmic_system']['detail']}\n"
+        + (f"Failed checks: {', '.join(r['algorithmic_system'].get('failed_checks', []))}\n" if r['algorithmic_system'].get('failed_checks') else "")
         f"Testing/validation: {r['validation']['status']} — {r['validation']['detail']}\n"
         f"Walk-forward research: {r['walk_forward']['status']} — {r['walk_forward']['detail']}\n"
         f"ATR 14: {r['atr']:.6f}\n"
