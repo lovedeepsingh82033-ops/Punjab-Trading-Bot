@@ -49,25 +49,53 @@ def algorithmic_system_context(df):
     required = {"datetime", "open", "high", "low", "close", "ema9", "ema21", "ema50", "rsi", "macd", "adx", "atr"}
     missing = sorted(required.difference(df.columns))
     if missing:
-        return {"status": "WARNING", "detail": "Missing fields: " + ", ".join(missing[:5]), "checks_passed": 0, "checks_total": 4}
+        failed = ["MISSING REQUIRED FIELDS: " + ", ".join(missing)]
+        return {
+            "status": "WARNING",
+            "detail": "Missing required fields",
+            "checks_passed": 0,
+            "checks_total": 4,
+            "failed_checks": failed,
+            "check_details": [
+                {"name": "Required fields present", "passed": False},
+                {"name": "Timestamps valid and chronological", "passed": False},
+                {"name": "Timestamps unique", "passed": False},
+                {"name": "OHLC and indicators finite/consistent", "passed": False},
+            ],
+        }
     times = pd.to_datetime(df["datetime"], utc=True, errors="coerce")
-    checks = [
-        not times.isna().any() and times.is_monotonic_increasing,
-        not times.duplicated().any(),
-    ]
     numeric = df[["open", "high", "low", "close"]].apply(pd.to_numeric, errors="coerce")
-    valid = numeric.notna().all(axis=1) & (numeric > 0).all(axis=1)
-    valid &= numeric["high"] >= numeric["low"]
-    valid &= numeric["high"] >= numeric[["open", "close"]].max(axis=1)
-    valid &= numeric["low"] <= numeric[["open", "close"]].min(axis=1)
-    checks.append(bool(valid.all()))
-    indicators = df[["ema9", "ema21", "ema50", "rsi", "macd", "adx", "atr"]].apply(pd.to_numeric, errors="coerce")
-    checks.append(bool(np.isfinite(indicators.to_numpy(dtype=float)).all()))
-    passed = sum(checks)
+    valid_ohlc = numeric.notna().all(axis=1) & (numeric > 0).all(axis=1)
+    valid_ohlc &= numeric["high"] >= numeric["low"]
+    valid_ohlc &= numeric["high"] >= numeric[["open", "close"]].max(axis=1)
+    valid_ohlc &= numeric["low"] <= numeric[["open", "close"]].min(axis=1)
+    indicators = df[["ema9", "ema21", "ema50", "rsi", "macd", "adx", "atr"]].apply(
+        pd.to_numeric, errors="coerce"
+    )
+    checks = [
+        bool(not times.isna().any() and times.is_monotonic_increasing),
+        bool(not times.duplicated().any()),
+        bool(valid_ohlc.all()),
+        bool(np.isfinite(indicators.to_numpy(dtype=float)).all()),
+    ]
+    names = [
+        "Timestamps valid and chronological",
+        "Timestamps unique",
+        "OHLC values positive and internally consistent",
+        "EMA/RSI/MACD/ADX/ATR values finite",
+    ]
+    failed = [name for name, passed in zip(names, checks) if not passed]
+    passed_count = sum(checks)
     return {
-        "status": "PASS" if passed == len(checks) else "WARNING",
-        "detail": f"{passed}/{len(checks)} data and indicator integrity checks passed",
-        "checks_passed": int(passed), "checks_total": len(checks),
+        "status": "PASS" if passed_count == len(checks) else "WARNING",
+        "detail": f"{passed_count}/{len(checks)} data and indicator integrity checks passed",
+        "checks_passed": int(passed_count),
+        "checks_total": len(checks),
+        "failed_checks": failed,
+        "check_details": [
+            {"name": name, "passed": bool(passed)}
+            for name, passed in zip(names, checks)
+        ],
     }
 
 
