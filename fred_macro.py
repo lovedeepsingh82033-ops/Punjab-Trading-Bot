@@ -103,7 +103,9 @@ def fetch_fred_macro_context(api_key=None, session=None, series=None,
                 "observations_returned": len(valid),
                 "source": "Federal Reserve Bank of St. Louis FRED",
             })
-        except (requests.RequestException, ValueError, TypeError, KeyError):
+        except Exception:
+            # Third-party clients and test doubles may raise non-requests errors.
+            # Keep the report useful without leaking URLs, tokens, or exception text.
             errors.append("Unable to retrieve " + series_id)
 
     if results and errors:
