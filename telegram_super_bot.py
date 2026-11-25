@@ -1,4 +1,4 @@
-"""Read-only Telegram command worker for Punjab AI Super Bot."""
+"""Read-only command worker for the existing Punjab Telegram bot."""
 import json
 import logging
 import os
@@ -9,7 +9,7 @@ import requests
 
 from snapshot_bridge import download_snapshot
 
-TOKEN = os.getenv("SUPER_BOT_TOKEN", "").strip()
+TOKEN = (os.getenv("SUPER_BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN") or "").strip()
 ALLOWED_IDS = {x.strip() for x in os.getenv("SUPER_BOT_ALLOWED_USER_IDS", "").split(",") if x.strip()}
 STATE_PATH = Path(os.getenv("BOT_STATE_PATH", "bot_state.json"))
 API = "https://api.telegram.org/bot" + TOKEN
@@ -79,7 +79,7 @@ def main():
     if not ALLOWED_IDS:
         raise RuntimeError("SUPER_BOT_ALLOWED_USER_IDS must be configured; refusing public access.")
     offset = None
-    logging.info("Punjab AI Super Bot polling worker started.")
+    logging.info("Punjab Telegram command polling worker started.")
     while True:
         try:
             params = {"timeout": 25}
