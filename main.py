@@ -19,6 +19,7 @@ from scanner_health import scanner_health_context
 from economic_calendar import economic_calendar_context
 from research_dashboard import advanced_research_dashboard, format_research_dashboard
 from intelligence_hub import build_intelligence_hub, format_intelligence_hub
+from quant_intelligence import build_quant_intelligence, format_quant_intelligence
 from bot_state import write_bot_snapshot
 from snapshot_bridge import upload_snapshot
 
@@ -1838,6 +1839,10 @@ def main():
         calendar_context=calendar_context,
     )
     telegram(format_intelligence_hub(intelligence_report))
+
+    # Aggregate existing diagnostics; leave scanner signals and decisions unchanged.
+    quant_report = build_quant_intelligence(scan_results)
+    telegram(format_quant_intelligence(quant_report))
 
     # Snapshot generation is best-effort and must never interrupt legacy reports.
     try:
