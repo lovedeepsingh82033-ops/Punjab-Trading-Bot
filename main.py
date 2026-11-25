@@ -1485,10 +1485,10 @@ def rsi_warning(rsi):
 
 def format_report(r, mtf_text="Not enough matching timeframe data"):
     if r["signal"] == "BULLISH":
-        signal_display = "BULLISH OBSERVATION 🟢"
+        signal_display = "UP 🟢"
         signal_icon = "🟢"
     elif r["signal"] == "BEARISH":
-        signal_display = "BEARISH OBSERVATION 🔴"
+        signal_display = "DOWN 🔴"
         signal_icon = "🔴"
     else:
         return None
@@ -1529,9 +1529,9 @@ def format_report(r, mtf_text="Not enough matching timeframe data"):
 
 def format_discord_report(r):
     if r["signal"] == "BULLISH":
-        signal_display = "BULLISH OBSERVATION 🟢"
+        signal_display = "UP 🟢"
     elif r["signal"] == "BEARISH":
-        signal_display = "BEARISH OBSERVATION 🔴"
+        signal_display = "DOWN 🔴"
     else:
         return None
 
