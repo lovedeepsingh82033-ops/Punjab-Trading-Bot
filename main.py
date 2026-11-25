@@ -1513,7 +1513,7 @@ def format_report(r, mtf_text="Not enough matching timeframe data"):
         f"🛡️ Risk research: historical max drawdown {r['risk_context']['max_drawdown_pct']:.2f}%; 95th percentile absolute move {r['risk_context']['return_p95_abs_pct']:.3f}%\n"
         f"⚙️ Algorithmic system: {r['algorithmic_system']['status']} — {r['algorithmic_system']['detail']}\n"
         + (f"   Failed checks: {', '.join(r['algorithmic_system'].get('failed_checks', []))}\n" if r['algorithmic_system'].get('failed_checks') else "")
-        f"🧪 Validation: {r['validation']['status']} — {r['validation']['detail']}\n"
+        + f"🧪 Validation: {r['validation']['status']} — {r['validation']['detail']}\n"
         f"🧭 Walk-forward research: {r['walk_forward']['status']} — {r['walk_forward']['detail']}\n"
         f"🌡️ Volatility: <b>{r['volatility']['regime']}</b> — ATR {r['volatility']['atr_pct']:.3f}% of price; {r['volatility']['percentile']:.0f}th percentile (100 candles)\n"
         f"〽️ MACD histogram: <code>{r['macd_hist']:.6f}</code>\n"
