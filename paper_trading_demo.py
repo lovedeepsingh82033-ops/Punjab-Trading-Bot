@@ -16,6 +16,7 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 from snapshot_bridge import download_snapshot
+from scanner_diagnostics import build_scanner_diagnostics
 
 ROOT = Path(__file__).resolve().parent
 HISTORY_PATH = ROOT / "signal_history.csv"
@@ -253,6 +254,16 @@ if direction not in {"UP", "DOWN", "BULLISH", "BEARISH", "NEUTRAL", "RANGE", "UN
     direction = "OBSERVATION"
 
 if page == "Console":
+    diagnostics = build_scanner_diagnostics(filtered)
+    st.markdown("### 🔎 SCANNER COVERAGE")
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric("Saved observations", f"{diagnostics['total_rows']:,}")
+    d2.metric("Directional labels", f"{diagnostics['directional_rows']:,}")
+    d3.metric("Neutral labels", f"{diagnostics['neutral_rows']:,}")
+    d4.metric("Unknown labels", f"{diagnostics['unknown_rows']:,}")
+    if diagnostics["by_timeframe"]:
+        st.dataframe(pd.DataFrame(diagnostics["by_timeframe"]), use_container_width=True, hide_index=True)
+    st.caption("Counts describe saved historical observations only; they do not create or recommend signals.")
     st.markdown("### 📡 MARKET INTELLIGENCE")
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("INSTRUMENT", str(latest_row.get("symbol", "—")) if latest_row is not None else "—")
