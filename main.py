@@ -1483,7 +1483,7 @@ def rsi_warning(rsi):
     return "No extreme RSI warning"
 
 
-def format_report(r, mtf_text="Not enough matching timeframe data"):
+def format_report(r, mtf_text="Not enough matching timeframe data", confidence_label="MTF CONFIRMED DEMO"):
     if r["signal"] == "BULLISH":
         signal_display = "BUY — DEMO 🟢"
         signal_icon = "🟢"
@@ -1500,7 +1500,8 @@ def format_report(r, mtf_text="Not enough matching timeframe data"):
         "🧪 <b>VIRTUAL DEMO OBSERVATION ONLY</b>\n"
         f"📊 <b>{r['symbol']}</b>\n"
         f"⏱ <b>{r['timeframe']}</b> timeframe\n"
-        f"{signal_icon} <b>{signal_display}</b>\n\n"
+        f"{signal_icon} <b>{signal_display}</b>\n"
+        f"🧭 <b>Status: {confidence_label}</b>\n\n"
         "📈 <b>ANALYSIS DETAILS</b>\n"
         f"🟢 Bull score: <b>{r['bull_score']}/6</b>\n"
         f"🔴 Bear score: <b>{r['bear_score']}/6</b>\n"
@@ -1694,7 +1695,25 @@ def main():
         ]
         decision = mtf_decision(result, same_market)
 
-        if not decision["passed"]:
+        if decision["passed"]:
+            mtf_text = (
+                f"CONFIRMED: {decision['votes']}/{decision['scanned']} timeframes; "
+                "H1 + M30 aligned; anchor ADX >= 20"
+            )
+            confidence_label = "MTF-CONFIRMED DEMO OBSERVATION"
+            send_to_discord = True
+        elif decision["cohort"] == "BLOCKED":
+            # Complete, fresh cohorts that do not pass the strict MTF gate are
+            # still shown as low-confidence educational observations on Telegram.
+            # Incomplete/stale cohorts remain suppressed.
+            mtf_text = (
+                f"EARLY / MIXED: {decision['votes']}/{decision['scanned']} "
+                f"timeframes agree; H1 aligned={decision['h1_aligned']}; "
+                f"M30 aligned={decision['m30_aligned']}; reason={decision['reason']}"
+            )
+            confidence_label = "LOW-CONFIDENCE EARLY DEMO — NOT CONFIRMED"
+            send_to_discord = False
+        else:
             logging.info(
                 "MTF %s %s %s: %s (agreement=%s/%s, H1=%s, M30=%s)",
                 decision["cohort"], result["symbol"], result["timeframe"],
@@ -1703,17 +1722,16 @@ def main():
             )
             continue
 
-        mtf_text = (
-            f"CONFIRMED: {decision['votes']}/{decision['scanned']} timeframes; "
-            "H1 + M30 aligned; anchor ADX >= 20"
-        )
-        report = format_report(result, mtf_text)
+        report = format_report(result, mtf_text, confidence_label)
         if telegram(report):
             telegram_sent += 1
+            # Keep delivery paced if several timeframes qualify in one scan.
+            time.sleep(1)
 
-        discord_report = format_discord_report(result)
-        if discord_report is not None and discord(discord_report):
-            discord_sent += 1
+        if send_to_discord:
+            discord_report = format_discord_report(result)
+            if discord_report is not None and discord(discord_report):
+                discord_sent += 1
 
     logging.info(
         "MTF filter blocked %s candidates; %s incomplete.",
