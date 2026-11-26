@@ -726,16 +726,22 @@ def analyze(symbol, timeframe, interval, as_of=None):
     signal = "NEUTRAL"
     direction = "NEUTRAL"
 
-    if (
-        adx >= 18
+    # Do not emit directional labels when the underlying data checks fail.
+    integrity_ok = (
+        algorithmic.get("status") == "PASS"
+        and quality.get("status") != "FAIL"
+    )
+
+    if integrity_ok and (
+        adx >= 20
         and bull_score >= 4
         and bull_score - bear_score >= 2
     ):
         signal = "BULLISH"
         direction = "BULLISH"
 
-    elif (
-        adx >= 18
+    elif integrity_ok and (
+        adx >= 20
         and bear_score >= 4
         and bear_score - bull_score >= 2
     ):

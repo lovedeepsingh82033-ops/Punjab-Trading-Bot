@@ -45,8 +45,13 @@ def risk_management_context(df):
 
 
 def algorithmic_system_context(df):
-    """Check input ordering, duplicate timestamps, OHLC consistency, and indicators."""
-    required = {"datetime", "open", "high", "low", "close", "ema9", "ema21", "ema50", "rsi", "macd", "adx", "atr"}
+    """Validate candle data and mature indicator values without flagging warm-up NaNs."""
+    # These are the stable core fields. Additional indicators are validated when
+    # present, but optional diagnostics must not make older/test data unusable.
+    required = {
+        "datetime", "open", "high", "low", "close",
+        "ema9", "ema21", "ema50", "rsi", "macd", "adx", "atr",
+    }
     missing = sorted(required.difference(df.columns))
     if missing:
         failed = ["MISSING REQUIRED FIELDS: " + ", ".join(missing)]
@@ -60,23 +65,51 @@ def algorithmic_system_context(df):
                 {"name": "Required fields present", "passed": False},
                 {"name": "Timestamps valid and chronological", "passed": False},
                 {"name": "Timestamps unique", "passed": False},
-                {"name": "OHLC and indicators finite/consistent", "passed": False},
+                {"name": "OHLC and mature indicators finite/consistent", "passed": False},
             ],
         }
+
     times = pd.to_datetime(df["datetime"], utc=True, errors="coerce")
     numeric = df[["open", "high", "low", "close"]].apply(pd.to_numeric, errors="coerce")
-    valid_ohlc = numeric.notna().all(axis=1) & (numeric > 0).all(axis=1)
+    ohlc = numeric.to_numpy(dtype=float)
+    valid_ohlc = np.isfinite(ohlc).all(axis=1) & (numeric > 0).all(axis=1)
     valid_ohlc &= numeric["high"] >= numeric["low"]
     valid_ohlc &= numeric["high"] >= numeric[["open", "close"]].max(axis=1)
     valid_ohlc &= numeric["low"] <= numeric[["open", "close"]].min(axis=1)
-    indicators = df[["ema9", "ema21", "ema50", "rsi", "macd", "adx", "atr"]].apply(
-        pd.to_numeric, errors="coerce"
+
+    core_indicators = ["ema9", "ema21", "ema50", "rsi", "macd", "adx", "atr"]
+    optional_indicators = ["macd_signal", "macd_hist", "plus_di", "minus_di"]
+    indicator_columns = core_indicators + [
+        column for column in optional_indicators if column in df.columns
+    ]
+    indicators = df[indicator_columns].apply(pd.to_numeric, errors="coerce")
+    values = indicators.to_numpy(dtype=float)
+
+    # Skip only the expected first 50 warm-up rows when a longer history exists.
+    # Short synthetic/test datasets have no established warm-up segment, so all
+    # their rows must be finite rather than silently checking only the last row.
+    warmup = 50
+    mature_start = warmup if len(values) > warmup else 0
+    mature = values[mature_start:]
+    mature_finite = bool(
+        len(mature) > 0
+        and np.isfinite(mature).all()
+        and np.isfinite(values[-1]).all()
+    ) if len(values) else False
+
+    rsi = indicators["rsi"].to_numpy(dtype=float)
+    adx = indicators["adx"].to_numpy(dtype=float)
+    bounded_indicators_valid = bool(
+        mature_finite
+        and ((rsi[mature_start:] >= 0) & (rsi[mature_start:] <= 100)).all()
+        and ((adx[mature_start:] >= 0) & (adx[mature_start:] <= 100)).all()
     )
+
     checks = [
         bool(not times.isna().any() and times.is_monotonic_increasing),
         bool(not times.duplicated().any()),
         bool(valid_ohlc.all()),
-        bool(np.isfinite(indicators.to_numpy(dtype=float)).all()),
+        bool(mature_finite and bounded_indicators_valid),
     ]
     names = [
         "Timestamps valid and chronological",
