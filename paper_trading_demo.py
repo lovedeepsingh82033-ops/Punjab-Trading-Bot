@@ -281,6 +281,21 @@ if page == "Console":
     sb1.metric("BUY observations", f"{buy_count:,}")
     sb2.metric("SELL observations", f"{sell_count:,}")
     sb3.metric("TOTAL directional", f"{buy_count + sell_count:,}")
+    if not signal_view.empty and "timeframe" in signal_view.columns:
+        st.markdown("**Historical BUY / SELL count by timeframe**")
+        timeframe_counts = signal_view.pivot_table(index="timeframe", columns="demo_signal", values="symbol" if "symbol" in signal_view.columns else "demo_signal", aggfunc="count", fill_value=0)
+        for label in ("BUY", "SELL"):
+            if label not in timeframe_counts.columns:
+                timeframe_counts[label] = 0
+        timeframe_counts = timeframe_counts[["BUY", "SELL"]].sort_index()
+        st.dataframe(timeframe_counts, use_container_width=True)
+    if not signal_view.empty and "symbol" in signal_view.columns:
+        with st.expander("Breakdown by instrument"):
+            symbol_counts = signal_view.pivot_table(index="symbol", columns="demo_signal", values="timeframe" if "timeframe" in signal_view.columns else "demo_signal", aggfunc="count", fill_value=0)
+            for label in ("BUY", "SELL"):
+                if label not in symbol_counts.columns:
+                    symbol_counts[label] = 0
+            st.dataframe(symbol_counts[["BUY", "SELL"]].sort_index(), use_container_width=True)
     if not signal_view.empty:
         signal_cols = [c for c in (time_col, "symbol", "timeframe", "demo_signal", "price", "rsi", "adx", "bull_score", "bear_score") if c and c in signal_view.columns]
         st.dataframe(signal_view[signal_cols].head(100).rename(columns={"demo_signal": "DEMO SIGNAL"}), use_container_width=True, hide_index=True)
