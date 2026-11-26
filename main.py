@@ -1605,6 +1605,109 @@ def format_discord_report(r):
     )
 
 
+
+def format_single_telegram_brief(
+    scan_results, confirmed_observations, watch_observations,
+    scanner_health, calendar_context, accuracy, backtest_results,
+    mtf_diagnostics, errors, new_records
+):
+    """One compact, non-actionable Telegram summary for the entire scan."""
+    symbols = []
+    for symbol in SYMBOLS:
+        rows = [x for x in scan_results if x.get("symbol") == symbol]
+        if not rows:
+            label = "NO DATA"
+        else:
+            bull = sum(x.get("direction") == "BULLISH" for x in rows)
+            bear = sum(x.get("direction") == "BEARISH" for x in rows)
+            label = "BULLISH" if bull > bear else ("BEARISH" if bear > bull else "MIXED")
+        symbols.append(f"{symbol}: {label}")
+
+    bull_confirmed = sum(x.get("signal") == "BULLISH" for x in confirmed_observations)
+    bear_confirmed = sum(x.get("signal") == "BEARISH" for x in confirmed_observations)
+    if bull_confirmed > bear_confirmed:
+        overall = "DEMO BUY OBSERVATION 🟢"
+    elif bear_confirmed > bull_confirmed:
+        overall = "DEMO SELL OBSERVATION 🔴"
+    else:
+        overall = "NO CONFIRMED SETUP — RESEARCH ONLY 🟡"
+
+    quality = {}
+    regimes = {}
+    volatility = {}
+    for item in scan_results:
+        q = item.get("data_quality", {}).get("status", "UNKNOWN")
+        r = item.get("market_regime", {}).get("label", "UNKNOWN")
+        v = item.get("volatility", {}).get("regime", "UNKNOWN")
+        quality[q] = quality.get(q, 0) + 1
+        regimes[r] = regimes.get(r, 0) + 1
+        volatility[v] = volatility.get(v, 0) + 1
+
+    def compact_counts(values):
+        return ", ".join(f"{k} {v}" for k, v in sorted(values.items())) or "No data"
+
+    confirmed_lines = []
+    for item in confirmed_observations[:5]:
+        confirmed_lines.append(
+            f"• {item.get('symbol')} {item.get('timeframe')}: "
+            f"{item.get('signal')} DEMO | RSI {item.get('rsi', 0):.1f} | "
+            f"ADX {item.get('adx', 0):.1f}"
+        )
+    watch_lines = []
+    for item in watch_observations[:3]:
+        direction = "BULLISH WATCH" if item.get("bull_score", 0) > item.get("bear_score", 0) else (
+            "BEARISH WATCH" if item.get("bear_score", 0) > item.get("bull_score", 0) else "MIXED WATCH"
+        )
+        watch_lines.append(f"• {item.get('symbol')} {item.get('timeframe')}: {direction} (research only)")
+
+    tested = [x for x in backtest_results if x.get("samples", 0) > 0]
+    tested.sort(key=lambda x: x.get("samples", 0), reverse=True)
+    backtest_line = "; ".join(
+        f"{x['symbol']} {x['timeframe']}: {x['hit_rate']:.1f}% positive, n={x['samples']}"
+        for x in tested[:3]
+    ) or "Insufficient historical samples"
+
+    events = (calendar_context or {}).get("events", [])[:2]
+    event_lines = [
+        f"• {e.get('event_time_utc', '')} {e.get('currency', '')} "
+        f"[{e.get('impact', '')}] {e.get('event', '')}"
+        for e in events
+    ] or ["No source-attributed calendar events loaded"]
+
+    hit_rate_text = f"{accuracy['win_rate']:.1f}%" if accuracy.get("win_rate") is not None else "Not available"
+    health_status = (scanner_health or {}).get("status", "UNKNOWN")
+    completion = (scanner_health or {}).get("completion_pct", 0.0)
+    return (
+        "🐅 PUNJAB AI ROBOT — SINGLE SCAN BRIEF\n"
+        "🧪 RESEARCH / PAPER DEMO ONLY — NO ORDERS\n\n"
+        f"OVERALL: {overall}\n"
+        f"MTF confirmed: {len(confirmed_observations)} | research watches: {len(watch_observations)}\n"
+        f"Markets scanned: {len({x.get('symbol') for x in scan_results})}/{len(SYMBOLS)} | "
+        f"Timeframes: {len(TIMEFRAMES)} | analyses: {len(scan_results)}\n\n"
+        "MARKET HEATMAP\n" + "\n".join(symbols) + "\n\n"
+        "CONFIRMED DEMO OBSERVATIONS\n"
+        + ("\n".join(confirmed_lines) if confirmed_lines else "No MTF-confirmed observations")
+        + "\n\nRESEARCH WATCHES\n"
+        + ("\n".join(watch_lines) if watch_lines else "No developing watch observations")
+        + "\n\nDATA / MARKET CONTEXT\n"
+        + f"Quality: {compact_counts(quality)}\n"
+        + f"Regimes: {compact_counts(regimes)}\n"
+        + f"Volatility: {compact_counts(volatility)}\n"
+        + f"Economic calendar: {(calendar_context or {}).get('status', 'UNKNOWN')} "
+        + f"({(calendar_context or {}).get('count', 0)} events)\n"
+        + ("\n".join(event_lines))
+        + "\n\nHISTORICAL VALIDATION\n"
+        + f"Evaluated: {accuracy.get('completed', 0)} | correct: {accuracy.get('correct', 0)} | "
+        + f"incorrect: {accuracy.get('incorrect', 0)} | flat: {accuracy.get('flat', 0)}\n"
+        + f"Directional hit rate: {hit_rate_text}\n"
+        + f"Scanner health: {health_status} ({completion:.1f}%) | processing errors: {errors} | new records: {new_records}\n"
+        + f"MTF gate: {mtf_diagnostics.get('passed', 0)} passed / {mtf_diagnostics.get('candidates', 0)} candidates\n"
+        + f"Holdout sample leaders: {backtest_line}\n"
+        + "\nNo live calendar feed is assumed; events appear only when source-attributed rows are configured.\n"
+        + "\nHistorical diagnostics only. Not a prediction or recommendation. No orders are placed."
+    )
+
+
 def main():
     if not API_KEY:
         raise RuntimeError(
@@ -1632,16 +1735,14 @@ def main():
     errors = 0
     pending_notifications = []
     pending_watch_notifications = []
+    telegram_confirmed_observations = []
+    telegram_watch_observations = []
     scan_results = []
     backtest_results = []
     outcomes_evaluated = 0
     correct_observations = 0
 
-    telegram(
-        "<b>Punjab Market Scanner Started</b>\n"
-        "Educational market-data scan is running."
-    )
-
+    # Telegram is intentionally quiet during the scan; one combined brief is sent at the end.\n
     for symbol in SYMBOLS:
         if API_RATE_LIMITED:
             break
@@ -1770,9 +1871,7 @@ def main():
                 result,
                 f"MTF not confirmed: {decision['votes']}/{decision['scanned']} timeframes agree; {decision['reason']}"
             )
-            if telegram(watch_report):
-                telegram_sent += 1
-                time.sleep(1)
+            telegram_watch_observations.append(result)
             continue
         else:
             logging.info(
@@ -1783,11 +1882,7 @@ def main():
             )
             continue
 
-        report = format_report(result, mtf_text, confidence_label)
-        if telegram(report):
-            telegram_sent += 1
-            # Keep delivery paced if several timeframes qualify in one scan.
-            time.sleep(1)
+        telegram_confirmed_observations.append(result)
 
         if send_to_discord:
             discord_report = format_discord_report(result)
@@ -1799,9 +1894,7 @@ def main():
             result,
             "Directional indicators are developing, but the strict directional threshold was not met."
         )
-        if telegram(watch_report):
-            telegram_sent += 1
-            time.sleep(1)
+        telegram_watch_observations.append(result)
 
     logging.info(
         "MTF filter blocked %s candidates; %s incomplete.",
@@ -1904,7 +1997,27 @@ def main():
         "spread, slippage, and fees are not included. No orders were placed.</i>"
     )
 
-    telegram(summary)
+    # Included in the combined Telegram brief below.\n
+
+    # Send exactly one concise Telegram message for this completed scan.
+    brief = format_single_telegram_brief(
+        scan_results=scan_results,
+        confirmed_observations=telegram_confirmed_observations,
+        watch_observations=telegram_watch_observations,
+        scanner_health=scanner_health,
+        calendar_context=calendar_context,
+        accuracy=accuracy,
+        backtest_results=backtest_results,
+        mtf_diagnostics=mtf_diagnostics,
+        errors=errors,
+        new_records=new_records,
+    )
+    # Keep one message below Telegram's 4096-character sendMessage limit.
+    brief = brief[:3900]
+    if telegram(brief):
+        telegram_sent = 1
+    else:
+        telegram_sent = 0
 
     # Cross-market research is descriptive only and uses aligned completed-candle returns.
     anomaly_count = sum(
@@ -1928,20 +2041,17 @@ def main():
         calendar_context=calendar_context,
         scanner_health=scanner_health,
     )
-    telegram(format_research_dashboard(dashboard_data))
-
+    # Included in the combined Telegram brief below.\n
     intelligence_report = build_intelligence_hub(
         dashboard_data,
         scan_results,
         scanner_health,
         calendar_context=calendar_context,
     )
-    telegram(format_intelligence_hub(intelligence_report))
-
+    # Included in the combined Telegram brief below.\n
     # Aggregate existing diagnostics; leave scanner signals and decisions unchanged.
     quant_report = build_quant_intelligence(scan_results)
-    telegram(format_quant_intelligence(quant_report))
-
+    # Included in the combined Telegram brief below.\n
     # Snapshot generation is best-effort and must never interrupt legacy reports.
     try:
         write_bot_snapshot(
@@ -1990,8 +2100,7 @@ def main():
         "",
         "<i>Research context only. No buy/sell instructions or orders.</i>",
     ])
-    telegram("\n".join(research_lines))
-
+    # Cross-market diagnostics are represented in the dashboard and snapshot.\n
     discord(
         "**Punjab Scan Complete**\n\n"
         f"Markets: {len(SYMBOLS)}\n"
