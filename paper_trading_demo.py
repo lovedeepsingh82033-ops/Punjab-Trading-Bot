@@ -29,11 +29,15 @@ st.markdown("""
 <style>
 :root { color-scheme: dark; }
 .stApp {
-  background: radial-gradient(ellipse at 12% 0%, #102b49 0%, #07111f 42%, #050b16 100%);
+  background: radial-gradient(ellipse at 12% 0%, #173c5d 0%, #08182a 38%, #040a13 100%);
   color: #e8f0fb;
 }
-[data-testid="stSidebar"] { background: #091629; border-right: 1px solid #183657; }
-.block-container { padding-top: 1rem; max-width: 1600px; padding-bottom: 2rem; }
+[data-testid="stSidebar"] { background: linear-gradient(180deg,#09182b,#06101d); border-right: 1px solid #214363; }
+.block-container { padding-top: 1.1rem; max-width: 1700px; padding-bottom: 2.4rem; }
+[data-testid="stVerticalBlockBorderWrapper"] { border-color: #21415e !important; }
+div[data-testid="stDataFrame"] { border: 1px solid #1b3853; border-radius: 12px; overflow: hidden; }
+hr { border-color: #1b3853 !important; }
+[data-testid="stMetricDelta"] { display: none; }
 h1, h2, h3 { color: #f4f8ff !important; }
 div[data-testid="stMetric"] {
   background: linear-gradient(145deg, #10243a, #0a1728);
@@ -43,20 +47,22 @@ div[data-testid="stMetricLabel"] { color: #a9bdd5; }
 div[data-testid="stMetricValue"] { color: #f4f8ff; }
 .punjab-header {
   background: linear-gradient(100deg, #08182c, #102d49 55%, #071525);
-  border: 1px solid #1e496d; border-radius: 18px;
-  padding: 18px 22px; margin-bottom: 14px;
+  border: 1px solid #286087; border-radius: 20px;
+  padding: 22px 24px; margin-bottom: 14px;
+  box-shadow: 0 12px 38px rgba(0,0,0,.24);
 }
 .brand { font-size: clamp(21px, 3vw, 29px); font-weight: 850; letter-spacing: .7px; color: #f8fbff; }
 .brand span { color: #f4c542; }
 .subbrand { color: #a9c1db; font-size: 12px; margin-top: 5px; }
 .robot-wrap {
   background: radial-gradient(circle at 50% 28%, #103b49, #071a2a 66%);
-  border: 1px solid #14634f; border-radius: 18px; padding: 18px;
-  text-align: center; min-height: 245px;
+  border: 1px solid #1a8064; border-radius: 20px; padding: 20px;
+  text-align: center; min-height: 265px;
+  box-shadow: inset 0 0 35px rgba(20,190,130,.06), 0 12px 30px rgba(0,0,0,.18);
 }
 .robot-orb {
   width: 100px; height: 100px; margin: 6px auto 12px; border-radius: 100%;
-  border: 4px solid #18e68b; box-shadow: 0 0 28px rgba(24,230,139,.32);
+  border: 3px solid #18e68b; box-shadow: 0 0 32px rgba(24,230,139,.4), inset 0 0 20px rgba(24,230,139,.12);
   display: flex; align-items: center; justify-content: center;
   font-size: 52px; background: #082b36;
 }
@@ -79,7 +85,13 @@ div.stButton > button[kind="primary"], div.stFormSubmitButton > button {
 st.markdown("""
 <div class="punjab-header">
   <div class="brand">🐅 <span>PUNJAB AI</span> TRADING ROBOT</div>
-  <div class="subbrand">SCANNER MONITOR &nbsp;•&nbsp; MARKET OBSERVATIONS &nbsp;•&nbsp; PAPER RESEARCH</div>
+  <div class="subbrand">INTELLIGENCE CONSOLE &nbsp;•&nbsp; SCANNER MONITOR &nbsp;•&nbsp; PAPER RESEARCH</div>
+  <div class="header-tags">
+    <span class="header-tag gold">● RESEARCH / DEMO MODE</span>
+    <span class="header-tag">XAU/USD WORKSPACE</span>
+    <span class="header-tag">HISTORICAL DATA VIEW</span>
+    <span class="header-tag">NO BROKER CONNECTION</span>
+  </div>
 </div>
 <div class="notice"><b>RESEARCH / DEMO MODE.</b> Market labels describe saved historical observations only.
 The journal stores hypothetical examples entered by the user. No live trading, broker connection,
@@ -193,6 +205,7 @@ if direction not in {"UP", "DOWN", "BULLISH", "BEARISH", "NEUTRAL", "RANGE", "UN
     direction = "OBSERVATION"
 
 if page == "Overview":
+    st.markdown('<div class="section-kicker">Punjab intelligence console</div>', unsafe_allow_html=True)
     st.markdown("### 📡 Market overview")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Instrument", str(latest_row.get("symbol", "—")) if latest_row is not None else "—")
@@ -200,6 +213,12 @@ if page == "Overview":
     c3.metric("Market observation", direction)
     c4.metric("Data freshness", freshness)
     st.caption(fresh_detail)
+
+    q1, q2, q3, q4 = st.columns(4)
+    q1.metric("Saved observations", f"{len(filtered):,}")
+    q2.metric("Instruments tracked", str(filtered["symbol"].nunique()) if "symbol" in filtered.columns else "—")
+    q3.metric("Timeframes found", str(filtered["timeframe"].nunique()) if "timeframe" in filtered.columns else "—")
+    q4.metric("Snapshot status", "Available" if snapshot else "Missing")
 
     left, right = st.columns([1.7, 1])
     with left:
@@ -210,7 +229,7 @@ if page == "Overview":
             if not chart.empty:
                 # Keep the price chart on one instrument/scale. Indicators are listed below.
                 plot = chart.set_index(time_col)[["price"]].rename(columns={"price": "Saved price"})
-                st.line_chart(plot, height=330, x_label="Recorded time (UTC)", y_label="Saved values")
+                st.line_chart(plot, height=360, x_label="Recorded time (UTC)", y_label="Price as recorded")
             else:
                 st.info("No valid positive saved prices are available for this filter.")
         else:
@@ -265,6 +284,7 @@ if page == "Overview":
             st.info("No scanner activity has been recorded.")
 
 elif page == "Scanner data":
+    st.markdown('<div class="section-kicker">Read-only market data</div>', unsafe_allow_html=True)
     st.markdown("### 🔎 Scanner observations")
     st.caption("Read-only historical scanner output. Direction labels describe recorded data; they are not instructions.")
     if filtered.empty:
@@ -281,6 +301,7 @@ elif page == "Scanner data":
         )
 
 elif page == "Paper trading demo":
+    st.markdown('<div class="section-kicker">Learning workspace</div>', unsafe_allow_html=True)
     st.markdown("### 🧾 Manual paper-research journal")
     st.caption("Hypothetical learning records only. No market recommendation, broker connection, or real order.")
     if "paper_records" not in st.session_state:
@@ -331,6 +352,7 @@ elif page == "Paper trading demo":
         st.rerun()
 
 else:
+    st.markdown('<div class="section-kicker">Platform diagnostics</div>', unsafe_allow_html=True)
     st.markdown("### ⚙️ System information")
     st.write("**Dashboard:** Punjab AI Trading Robot")
     st.write("**Mode:** Saved scanner observations + manual hypothetical journal")
