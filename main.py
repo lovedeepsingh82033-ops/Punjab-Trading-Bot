@@ -20,6 +20,7 @@ from economic_calendar import economic_calendar_context
 from research_dashboard import advanced_research_dashboard, format_research_dashboard
 from intelligence_hub import build_intelligence_hub, format_intelligence_hub
 from quant_intelligence import build_quant_intelligence, format_quant_intelligence
+from market_universe import ALL_FOREX_SYMBOLS, symbols_for_scan
 from bot_state import write_bot_snapshot
 from snapshot_bridge import upload_snapshot
 
@@ -35,10 +36,10 @@ DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "").strip()
 DISCORD_CHANNEL_ID = os.getenv("DISCORD_CHANNEL_ID", "").strip()
 DISCORD_ACCESS_BLOCKED = False
 
-SYMBOLS = [
-    "EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD",
-    "USD/CAD", "NZD/USD", "XAU/USD"
-]
+# Rotate through the complete 28-pair FX universe in seven-pair batches.
+# With the existing two-hour workflow schedule, every pair is covered every eight hours.
+# This keeps Twelve Data usage within the current scanner's request/time budget.
+SYMBOLS = symbols_for_scan(datetime.now(timezone.utc))
 
 TIMEFRAMES = {
     "M5": ("5min", 5),
