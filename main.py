@@ -255,7 +255,7 @@ def discord(message):
 
 def filter_completed_candles(df, interval, as_of):
     """Keep only candles fully closed at one shared UTC scan cutoff."""
-    minutes = next(
+    minutes = 1 if interval == "1min" else next(
         (value[1] for value in TIMEFRAMES.values() if value[0] == interval),
         None,
     )
@@ -1606,10 +1606,50 @@ def format_discord_report(r):
 
 
 
+def recent_horizon_research(as_of=None):
+    """Describe completed historical 1-minute price windows; never forecast future movement."""
+    horizons = (1, 3, 5, 10, 20, 30)
+    observations = {}
+    for symbol in SYMBOLS:
+        if API_RATE_LIMITED:
+            observations[symbol] = {}
+            continue
+        try:
+            candles = fetch_candles(symbol, "1min", as_of=as_of)
+            symbol_rows = {}
+            for minutes in horizons:
+                if len(candles) < minutes + 1:
+                    symbol_rows[minutes] = None
+                    continue
+                window = candles.tail(minutes + 1)
+                gaps = window["datetime"].diff().dropna()
+                if not gaps.eq(pd.Timedelta(minutes=1)).all():
+                    symbol_rows[minutes] = None
+                    continue
+                start = float(window.iloc[0]["close"])
+                end = float(window.iloc[-1]["close"])
+                if start <= 0:
+                    symbol_rows[minutes] = None
+                    continue
+                change_pct = ((end / start) - 1.0) * 100.0
+                direction = "UP" if change_pct > 0 else ("DOWN" if change_pct < 0 else "FLAT")
+                symbol_rows[minutes] = {"direction": direction, "change_pct": change_pct}
+            observations[symbol] = symbol_rows
+        except Exception as exc:
+            logging.warning(
+                "Historical horizon research unavailable for %s (%s).",
+                symbol, type(exc).__name__
+            )
+            observations[symbol] = {}
+            if API_RATE_LIMITED:
+                break
+    return observations
+
+
 def format_single_telegram_brief(
     scan_results, confirmed_observations, watch_observations,
     scanner_health, calendar_context, accuracy, backtest_results,
-    mtf_diagnostics, errors, new_records
+    mtf_diagnostics, errors, new_records, horizon_observations=None
 ):
     """One compact, non-actionable Telegram summary for the entire scan."""
     symbols = []
@@ -1674,6 +1714,19 @@ def format_single_telegram_brief(
         for e in events
     ] or ["No source-attributed calendar events loaded"]
 
+    horizon_lines = []
+    horizon_observations = horizon_observations or {}
+    for symbol in SYMBOLS:
+        values = horizon_observations.get(symbol, {})
+        parts = []
+        for minutes in (1, 3, 5, 10, 20, 30):
+            item = values.get(minutes)
+            if item:
+                parts.append(f"{minutes}m {item['direction']} {item['change_pct']:+.3f}%")
+            else:
+                parts.append(f"{minutes}m N/A")
+        horizon_lines.append(f"• {symbol}: " + " | ".join(parts))
+
     hit_rate_text = f"{accuracy['win_rate']:.1f}%" if accuracy.get("win_rate") is not None else "Not available"
     health_status = (scanner_health or {}).get("status", "UNKNOWN")
     completion = (scanner_health or {}).get("completion_pct", 0.0)
@@ -1689,6 +1742,9 @@ def format_single_telegram_brief(
         + ("\n".join(confirmed_lines) if confirmed_lines else "No MTF-confirmed observations")
         + "\n\nRESEARCH WATCHES\n"
         + ("\n".join(watch_lines) if watch_lines else "No developing watch observations")
+        + "\n\nLAST COMPLETED PRICE WINDOWS — HISTORICAL ONLY\n"
+        + "1-minute candles; UP/DOWN describes the past window, not the next one.\n"
+        + ("\n".join(horizon_lines) if horizon_lines else "Insufficient 1-minute data")
         + "\n\nDATA / MARKET CONTEXT\n"
         + f"Quality: {compact_counts(quality)}\n"
         + f"Regimes: {compact_counts(regimes)}\n"
@@ -1999,6 +2055,9 @@ def main():
 
     # Included in the combined Telegram brief below.\n
 
+    # Additional 1-minute candles are used only to summarize completed historical windows.
+    horizon_observations = recent_horizon_research(as_of=scan_cutoff)
+
     # Send exactly one concise Telegram message for this completed scan.
     brief = format_single_telegram_brief(
         scan_results=scan_results,
@@ -2011,6 +2070,7 @@ def main():
         mtf_diagnostics=mtf_diagnostics,
         errors=errors,
         new_records=new_records,
+        horizon_observations=horizon_observations,
     )
     # Keep one message below Telegram's 4096-character sendMessage limit.
     brief = brief[:3900]
