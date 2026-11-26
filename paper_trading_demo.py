@@ -424,56 +424,10 @@ elif page == "Scanner data":
             use_container_width=True,
         )
 
+
 elif page == "Paper trading demo":
-    st.markdown('<div class="section-kicker">Learning workspace</div>', unsafe_allow_html=True)
-    st.markdown("### 🧾 Manual paper-research journal")
-    st.caption("Hypothetical learning records only. No market recommendation, broker connection, or real order.")
-    if "paper_records" not in st.session_state:
-        st.session_state.paper_records = []
-    with st.form("paper_record_form"):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            demo_symbol = st.selectbox("Example instrument", ["XAU/USD", "EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD"])
-            example_side = st.radio("Example scenario", ["BUY", "SELL"], horizontal=True)
-        with c2:
-            entry = st.number_input("Example entry value", min_value=0.0, value=1.0, format="%.5f")
-            review = st.number_input("Example review value", min_value=0.0, value=1.0, format="%.5f")
-        with c3:
-            units = st.number_input("Demo units", min_value=0.01, value=1.0, step=0.1)
-            note = st.text_input("Optional note")
-        save = st.form_submit_button("Save hypothetical example", type="primary", use_container_width=True)
-    if save:
-        if entry <= 0 or review <= 0:
-            st.error("Enter example values greater than zero.")
-        else:
-            difference = (review - entry) if example_side == "BUY" else (entry - review)
-            st.session_state.paper_records.insert(0, {
-                "Recorded UTC": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-                "Instrument": demo_symbol,
-                "Scenario": example_side,
-                "Example entry": entry,
-                "Review value": review,
-                "Demo units": units,
-                "Hypothetical difference": difference * units,
-                "Outcome": "Positive" if difference > 0 else ("Negative" if difference < 0 else "Flat"),
-                "Note": note,
-            })
-            st.success("Hypothetical example saved in this session.")
-    records = st.session_state.paper_records
-    if records:
-        journal = pd.DataFrame(records)
-        x, y, z = st.columns(3)
-        x.metric("Demo records", len(journal))
-        y.metric("Hypothetical total", f"{journal['Hypothetical difference'].sum():.5f}")
-        z.metric("Positive examples", int((journal["Outcome"] == "Positive").sum()))
-        st.dataframe(journal, use_container_width=True, hide_index=True)
-        st.download_button("Download demo journal (CSV)", journal.to_csv(index=False).encode("utf-8"),
-                           "punjab_paper_journal.csv", "text/csv")
-    else:
-        st.info("The example journal is empty. Add a hypothetical example to test the calculations.")
-    if st.button("Clear this session's journal"):
-        st.session_state.paper_records = []
-        st.rerun()
+    from virtual_demo_account import render_virtual_demo_account
+    render_virtual_demo_account()
 
 else:
     st.markdown('<div class="section-kicker">Platform diagnostics</div>', unsafe_allow_html=True)
