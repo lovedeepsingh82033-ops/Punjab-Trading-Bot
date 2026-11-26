@@ -163,8 +163,12 @@ with st.sidebar:
     st.markdown("### 🔎 Scanner filters")
     symbols = sorted(history["symbol"].dropna().astype(str).unique()) if "symbol" in history.columns else []
     frames = sorted(history["timeframe"].dropna().astype(str).unique()) if "timeframe" in history.columns else []
-    selected_symbol = st.selectbox("Instrument", ["All"] + symbols)
-    selected_frame = st.selectbox("Timeframe", ["All"] + frames)
+    symbol_options = ["All"] + symbols
+    frame_options = ["All"] + frames
+    default_symbol = symbol_options.index("XAU/USD") if "XAU/USD" in symbol_options else 0
+    default_frame = frame_options.index("H1") if "H1" in frame_options else 0
+    selected_symbol = st.selectbox("Instrument", symbol_options, index=default_symbol)
+    selected_frame = st.selectbox("Timeframe", frame_options, index=default_frame)
 
 filtered = history.copy()
 if selected_symbol != "All" and "symbol" in filtered.columns:
@@ -201,14 +205,11 @@ if page == "Overview":
     with left:
         st.markdown("### 📈 Recorded market history")
         if not filtered.empty and "price" in filtered.columns and time_col:
-            chart_cols = [c for c in ("price", "ema9", "ema21", "ema50", "ema200") if c in filtered.columns]
             chart = filtered.dropna(subset=["price", time_col]).copy()
             chart = chart[chart["price"] > 0].sort_values(time_col)
             if not chart.empty:
-                plot = chart.set_index(time_col)[chart_cols].rename(columns={
-                    "price": "Saved price", "ema9": "EMA 9", "ema21": "EMA 21",
-                    "ema50": "EMA 50", "ema200": "EMA 200",
-                })
+                # Keep the price chart on one instrument/scale. Indicators are listed below.
+                plot = chart.set_index(time_col)[["price"]].rename(columns={"price": "Saved price"})
                 st.line_chart(plot, height=330, x_label="Recorded time (UTC)", y_label="Saved values")
             else:
                 st.info("No valid positive saved prices are available for this filter.")
