@@ -151,6 +151,16 @@ def value_of(row, key: str, fmt: str = ".2f", fallback: str = "—") -> str:
         return str(val)
 
 
+def demo_signal_label(value) -> str:
+    """Translate historical direction labels into clear demo-board labels."""
+    raw = str(value or "").strip().upper()
+    if raw in {"BULLISH", "UP", "BUY"}:
+        return "BUY"
+    if raw in {"BEARISH", "DOWN", "SELL"}:
+        return "SELL"
+    return "NEUTRAL"
+
+
 with st.sidebar:
     st.markdown("## 🧭 Navigation")
     page = st.radio(
@@ -240,6 +250,18 @@ time_col = next((c for c in ("recorded_at_utc", "signal_time", "evaluated_at") i
 latest = filtered.sort_values(time_col, ascending=False, na_position="last") if time_col else filtered
 latest_row = latest.iloc[0] if not latest.empty else None
 
+# The board displays every directional observation already saved by the scanner.
+# It does not invent signals or relax the scanner's validation rules.
+signal_view = filtered.copy()
+if not signal_view.empty:
+    source_direction = signal_view["direction"] if "direction" in signal_view.columns else signal_view.get("signal", pd.Series(index=signal_view.index, dtype=object))
+    signal_view["demo_signal"] = source_direction.map(demo_signal_label)
+    signal_view = signal_view[signal_view["demo_signal"].isin(["BUY", "SELL"])].copy()
+    if time_col:
+        signal_view = signal_view.sort_values(time_col, ascending=False, na_position="last")
+buy_count = int((signal_view["demo_signal"] == "BUY").sum()) if not signal_view.empty else 0
+sell_count = int((signal_view["demo_signal"] == "SELL").sum()) if not signal_view.empty else 0
+
 freshness = "NO DATA"
 fresh_detail = "No saved scanner observations found."
 age_hours = None
@@ -253,6 +275,19 @@ if direction not in {"UP", "DOWN", "BULLISH", "BEARISH", "NEUTRAL", "RANGE", "UN
     direction = "OBSERVATION"
 
 if page == "Console":
+    st.markdown("### 🟢🔴 DEMO BUY / SELL SIGNAL BOARD")
+    st.caption("Historical scanner observations only · labels are educational, not trading instructions. Only signals actually saved by the scanner are shown.")
+    sb1, sb2, sb3 = st.columns(3)
+    sb1.metric("BUY observations", f"{buy_count:,}")
+    sb2.metric("SELL observations", f"{sell_count:,}")
+    sb3.metric("TOTAL directional", f"{buy_count + sell_count:,}")
+    if not signal_view.empty:
+        signal_cols = [c for c in (time_col, "symbol", "timeframe", "demo_signal", "price", "rsi", "adx", "bull_score", "bear_score") if c and c in signal_view.columns]
+        st.dataframe(signal_view[signal_cols].head(100).rename(columns={"demo_signal": "DEMO SIGNAL"}), use_container_width=True, hide_index=True)
+        st.caption(f"Showing up to 100 of {len(signal_view):,} saved BUY/SELL observations across the selected filters.")
+    else:
+        st.info("No saved BUY/SELL observations match these filters yet. The scanner must complete a run and save qualifying historical observations first.")
+    st.divider()
     st.markdown("### 📡 MARKET INTELLIGENCE")
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("INSTRUMENT", str(latest_row.get("symbol", "—")) if latest_row is not None else "—")
@@ -415,7 +450,11 @@ elif page == "Scanner data":
         st.warning("No scanner records found. The existing scanner workflow must create signal_history.csv.")
     else:
         st.metric("Matching observations", f"{len(filtered):,}")
-        st.dataframe(latest.head(300), use_container_width=True, hide_index=True)
+        display_latest = latest.copy()
+        if not display_latest.empty:
+            source_direction = display_latest["direction"] if "direction" in display_latest.columns else display_latest.get("signal", pd.Series(index=display_latest.index, dtype=object))
+            display_latest["DEMO SIGNAL"] = source_direction.map(demo_signal_label)
+        st.dataframe(display_latest.head(300), use_container_width=True, hide_index=True)
         st.download_button(
             "Download filtered observations (CSV)",
             filtered.to_csv(index=False).encode("utf-8"),
