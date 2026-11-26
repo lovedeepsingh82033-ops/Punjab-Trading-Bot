@@ -46,11 +46,11 @@ def risk_management_context(df):
 
 def algorithmic_system_context(df):
     """Validate candle data and mature indicator values without flagging warm-up NaNs."""
+    # These are the stable core fields. Additional indicators are validated when
+    # present, but optional diagnostics must not make older/test data unusable.
     required = {
         "datetime", "open", "high", "low", "close",
-        "ema9", "ema21", "ema50", "rsi", "macd",
-        "macd_signal", "macd_hist", "adx", "atr",
-        "plus_di", "minus_di",
+        "ema9", "ema21", "ema50", "rsi", "macd", "adx", "atr",
     }
     missing = sorted(required.difference(df.columns))
     if missing:
@@ -77,29 +77,32 @@ def algorithmic_system_context(df):
     valid_ohlc &= numeric["high"] >= numeric[["open", "close"]].max(axis=1)
     valid_ohlc &= numeric["low"] <= numeric[["open", "close"]].min(axis=1)
 
-    indicator_columns = [
-        "ema9", "ema21", "ema50", "rsi", "macd",
-        "macd_signal", "macd_hist", "adx", "atr",
-        "plus_di", "minus_di",
+    core_indicators = ["ema9", "ema21", "ema50", "rsi", "macd", "adx", "atr"]
+    optional_indicators = ["macd_signal", "macd_hist", "plus_di", "minus_di"]
+    indicator_columns = core_indicators + [
+        column for column in optional_indicators if column in df.columns
     ]
     indicators = df[indicator_columns].apply(pd.to_numeric, errors="coerce")
     values = indicators.to_numpy(dtype=float)
 
-    # RSI, ADX, ATR and directional indicators need a warm-up period.
-    # Validate the mature series and the latest row, not expected early NaNs.
+    # Skip only the expected first 50 warm-up rows when a longer history exists.
+    # Short synthetic/test datasets have no established warm-up segment, so all
+    # their rows must be finite rather than silently checking only the last row.
     warmup = 50
-    mature = values[warmup:] if len(values) > warmup else np.empty((0, len(indicator_columns)))
+    mature_start = warmup if len(values) > warmup else 0
+    mature = values[mature_start:]
     mature_finite = bool(
         len(mature) > 0
         and np.isfinite(mature).all()
         and np.isfinite(values[-1]).all()
-    )
+    ) if len(values) else False
+
     rsi = indicators["rsi"].to_numpy(dtype=float)
     adx = indicators["adx"].to_numpy(dtype=float)
     bounded_indicators_valid = bool(
         mature_finite
-        and ((rsi[warmup:] >= 0) & (rsi[warmup:] <= 100)).all()
-        and ((adx[warmup:] >= 0) & (adx[warmup:] <= 100)).all()
+        and ((rsi[mature_start:] >= 0) & (rsi[mature_start:] <= 100)).all()
+        and ((adx[mature_start:] >= 0) & (adx[mature_start:] <= 100)).all()
     )
 
     checks = [
@@ -112,7 +115,7 @@ def algorithmic_system_context(df):
         "Timestamps valid and chronological",
         "Timestamps unique",
         "OHLC values positive and internally consistent",
-        "EMA/RSI/MACD/ADX/ATR values finite after 50-row warm-up",
+        "EMA/RSI/MACD/ADX/ATR values finite",
     ]
     failed = [name for name, passed in zip(names, checks) if not passed]
     passed_count = sum(checks)
