@@ -1485,18 +1485,19 @@ def rsi_warning(rsi):
 
 def format_report(r, mtf_text="Not enough matching timeframe data"):
     if r["signal"] == "BULLISH":
-        signal_display = "UP 🟢"
+        signal_display = "BUY — DEMO 🟢"
         signal_icon = "🟢"
     elif r["signal"] == "BEARISH":
-        signal_display = "DOWN 🔴"
+        signal_display = "SELL — DEMO 🔴"
         signal_icon = "🔴"
     else:
         return None
 
     return (
         "━━━━━━━━━━━━━━━━━━\n"
-        "🤖 <b>PUNJAB MARKET SCANNER</b>\n"
+        "🐅 <b>PUNJAB AI ROBOT</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
+        "🧪 <b>VIRTUAL DEMO OBSERVATION ONLY</b>\n"
         f"📊 <b>{r['symbol']}</b>\n"
         f"⏱ <b>{r['timeframe']}</b> timeframe\n"
         f"{signal_icon} <b>{signal_display}</b>\n\n"
