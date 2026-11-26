@@ -7,12 +7,15 @@ Market observations are descriptive, and the journal is hypothetical only.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
+
+from snapshot_bridge import download_snapshot
 
 ROOT = Path(__file__).resolve().parent
 HISTORY_PATH = ROOT / "signal_history.csv"
@@ -169,7 +172,52 @@ if auto_refresh:
     st_autorefresh(interval=refresh_seconds * 1000, limit=None, key="punjab_dashboard_refresh")
 
 history = load_history(str(HISTORY_PATH), file_mtime(HISTORY_PATH)) if HISTORY_PATH.exists() else pd.DataFrame()
-snapshot = load_snapshot(str(SNAPSHOT_PATH), file_mtime(SNAPSHOT_PATH)) if SNAPSHOT_PATH.exists() else {}
+
+# Streamlit Cloud runs separately from the scanner. Read the same private
+# snapshot bridge credentials from Streamlit Secrets, then fetch the scanner's
+# latest published snapshot. Never display an old snapshot as current.
+for secret_name in ("BOT_STATE_BRIDGE_URL", "BOT_STATE_BRIDGE_KEY", "BOT_STATE_BRIDGE_BUCKET"):
+    try:
+        secret_value = st.secrets.get(secret_name, "")
+    except Exception:
+        secret_value = ""
+    if secret_value and not os.getenv(secret_name):
+        os.environ[secret_name] = str(secret_value).strip()
+
+snapshot = {}
+snapshot_source = "MISSING"
+snapshot_error = ""
+try:
+    snapshot = download_snapshot() or {}
+    if snapshot:
+        snapshot_source = "REMOTE BRIDGE"
+except Exception as exc:
+    # Keep credentials, URLs, and provider response bodies out of the UI.
+    snapshot_error = type(exc).__name__
+
+if not snapshot and SNAPSHOT_PATH.exists():
+    snapshot = load_snapshot(str(SNAPSHOT_PATH), file_mtime(SNAPSHOT_PATH))
+    if snapshot:
+        snapshot_source = "LOCAL FILE"
+
+snapshot_age_hours = None
+snapshot_time = snapshot.get("generated_at") if snapshot else None
+if snapshot_time:
+    try:
+        parsed_snapshot_time = pd.to_datetime(snapshot_time, utc=True, errors="coerce")
+        if pd.notna(parsed_snapshot_time):
+            snapshot_age_hours = max(
+                0.0,
+                (datetime.now(timezone.utc) - parsed_snapshot_time.to_pydatetime()).total_seconds() / 3600,
+            )
+    except (TypeError, ValueError):
+        snapshot_age_hours = None
+
+snapshot_status = "MISSING"
+if snapshot:
+    snapshot_status = "AVAILABLE"
+    if snapshot_age_hours is not None and snapshot_age_hours > 24:
+        snapshot_status = "STALE"
 
 with st.sidebar:
     st.markdown("### 🔎 Scanner filters")
@@ -212,14 +260,14 @@ if page == "Console":
     m3.metric("OBSERVATION", direction)
     m4.metric("DATA FRESHNESS", freshness)
     m5.metric("SAVED RECORDS", f"{len(filtered):,}")
-    st.caption(f"{fresh_detail} · Timeframes: {filtered['timeframe'].nunique() if 'timeframe' in filtered.columns else 0} · Snapshot: {'Available' if snapshot else 'Missing'}")
+    st.caption(f"{fresh_detail} · Timeframes: {filtered['timeframe'].nunique() if 'timeframe' in filtered.columns else 0} · Snapshot: {snapshot_status} ({snapshot_source})")
     left, right = st.columns([1, 2.1], gap="large")
     with left:
         st.markdown("### 🤖 ROBOT STATUS")
         robot_text = "WAITING FOR DATA" if freshness == "NO DATA" else ("CHECK DATA AGE" if freshness in {"AGING", "STALE"} else "SCANNING SAVED DATA")
         st.markdown(f"""<div class="robot-wrap"><div class="robot-orb">🤖</div><div class="robot-status">{robot_text}</div><div class="muted">Punjab Intelligence Monitor</div><p class="muted">Research / Demo · Saved files only</p><hr><div class="muted">LAST OBSERVATION</div><b>{fresh_detail}</b></div>""", unsafe_allow_html=True)
         st.markdown("**SYSTEM HEALTH**")
-        for label, ok in [("History file has records", not history.empty), ("Snapshot file available", bool(snapshot)), ("Latest observation recent", freshness == "RECENT")]:
+        for label, ok in [("History file has records", not history.empty), ("Snapshot available", snapshot_status == "AVAILABLE"), ("Latest observation recent", freshness == "RECENT")]:
             st.write(("🟢 " if ok else "🟡 ") + label)
     with right:
         st.markdown("### 📈 MARKET CHART")
@@ -253,7 +301,7 @@ if page == "Console":
             st.info("No scanner activity has been recorded.")
     with activity:
         st.markdown("**Robot activity monitor**")
-        for label, status in [("Load saved history", "OK" if not history.empty else "WAITING"), ("Read latest snapshot", "OK" if snapshot else "MISSING"), ("Check observation age", freshness), ("Validate chart values", "OK" if latest_row is not None and pd.notna(latest_row.get("price")) else "WAITING")]:
+        for label, status in [("Load saved history", "OK" if not history.empty else "WAITING"), ("Read latest snapshot", snapshot_status), ("Check observation age", freshness), ("Validate chart values", "OK" if latest_row is not None and pd.notna(latest_row.get("price")) else "WAITING")]:
             st.write(f"• {label} — **{status}**")
     with st.expander("🧪 PAPER RESEARCH JOURNAL — hypothetical examples only"):
         st.caption("Learning examples only. No recommendations, broker connection, or real orders.")
@@ -294,7 +342,7 @@ elif page == "Overview":
     q1.metric("Saved observations", f"{len(filtered):,}")
     q2.metric("Instruments tracked", str(filtered["symbol"].nunique()) if "symbol" in filtered.columns else "—")
     q3.metric("Timeframes found", str(filtered["timeframe"].nunique()) if "timeframe" in filtered.columns else "—")
-    q4.metric("Snapshot status", "Available" if snapshot else "Missing")
+    q4.metric("Snapshot status", snapshot_status)
 
     left, right = st.columns([1.7, 1])
     with left:
