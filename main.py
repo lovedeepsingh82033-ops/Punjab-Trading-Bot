@@ -1674,30 +1674,37 @@ def format_single_telegram_brief(
         for e in events
     ] or ["No source-attributed calendar events loaded"]
 
+    hit_rate_text = f"{accuracy['win_rate']:.1f}%" if accuracy.get("win_rate") is not None else "Not available"
+    health_status = (scanner_health or {}).get("status", "UNKNOWN")
+    completion = (scanner_health or {}).get("completion_pct", 0.0)
     return (
-        "🐅 PUNJAB AI ROBOT — SINGLE SCAN BRIEF\\n"
-        "🧪 RESEARCH / PAPER DEMO ONLY — NO ORDERS\\n\\n"
-        f"OVERALL: {overall}\\n"
-        f"MTF confirmed: {len(confirmed_observations)} | research watches: {len(watch_observations)}\\n"
+        "🐅 PUNJAB AI ROBOT — SINGLE SCAN BRIEF\n"
+        "🧪 RESEARCH / PAPER DEMO ONLY — NO ORDERS\n\n"
+        f"OVERALL: {overall}\n"
+        f"MTF confirmed: {len(confirmed_observations)} | research watches: {len(watch_observations)}\n"
         f"Markets scanned: {len({x.get('symbol') for x in scan_results})}/{len(SYMBOLS)} | "
-        f"Timeframes: {len(TIMEFRAMES)} | analyses: {len(scan_results)}\\n\\n"
-        "MARKET HEATMAP\\n" + "\\n".join(symbols) + "\\n\\n"
-        "CONFIRMED DEMO OBSERVATIONS\\n"
-        + ("\\n".join(confirmed_lines) if confirmed_lines else "No MTF-confirmed observations")
-        + "\\n\\nRESEARCH WATCHES\\n"
-        + ("\\n".join(watch_lines) if watch_lines else "No developing watch observations")
-        + "\\n\\nDATA / MARKET CONTEXT\\n"
-        + f"Quality: {compact_counts(quality)}\\n"
-        + f"Regimes: {compact_counts(regimes)}\\n"
-        + f"Volatility: {compact_counts(volatility)}\\n"
+        f"Timeframes: {len(TIMEFRAMES)} | analyses: {len(scan_results)}\n\n"
+        "MARKET HEATMAP\n" + "\n".join(symbols) + "\n\n"
+        "CONFIRMED DEMO OBSERVATIONS\n"
+        + ("\n".join(confirmed_lines) if confirmed_lines else "No MTF-confirmed observations")
+        + "\n\nRESEARCH WATCHES\n"
+        + ("\n".join(watch_lines) if watch_lines else "No developing watch observations")
+        + "\n\nDATA / MARKET CONTEXT\n"
+        + f"Quality: {compact_counts(quality)}\n"
+        + f"Regimes: {compact_counts(regimes)}\n"
+        + f"Volatility: {compact_counts(volatility)}\n"
         + f"Economic calendar: {(calendar_context or {}).get('status', 'UNKNOWN')} "
-        + f"({(calendar_context or {}).get('count', 0)} events)\\n"
-        + ("\\n".join(event_lines))
-        + "\\n\\nHISTORICAL VALIDATION\\n"
+        + f"({(calendar_context or {}).get('count', 0)} events)\n"
+        + ("\n".join(event_lines))
+        + "\n\nHISTORICAL VALIDATION\n"
         + f"Evaluated: {accuracy.get('completed', 0)} | correct: {accuracy.get('correct', 0)} | "
-        + f"incorrect: {accuracy.get('incorrect', 0)} | flat: {accuracy.get('flat', 0)}\\n"
-        + f"Directional hit rate: {accuracy.get('win_rate'):.1f}%\\n" if accuracy.get("win_rate") is not None
-        else "Directional hit rate: Not available\\n"
+        + f"incorrect: {accuracy.get('incorrect', 0)} | flat: {accuracy.get('flat', 0)}\n"
+        + f"Directional hit rate: {hit_rate_text}\n"
+        + f"Scanner health: {health_status} ({completion:.1f}%) | processing errors: {errors} | new records: {new_records}\n"
+        + f"MTF gate: {mtf_diagnostics.get('passed', 0)} passed / {mtf_diagnostics.get('candidates', 0)} candidates\n"
+        + f"Holdout sample leaders: {backtest_line}\n"
+        + "\nNo live calendar feed is assumed; events appear only when source-attributed rows are configured.\n"
+        + "\nHistorical diagnostics only. Not a prediction or recommendation. No orders are placed."
     )
 
 
