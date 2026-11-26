@@ -20,6 +20,7 @@ from economic_calendar import economic_calendar_context
 from research_dashboard import advanced_research_dashboard, format_research_dashboard
 from intelligence_hub import build_intelligence_hub, format_intelligence_hub
 from quant_intelligence import build_quant_intelligence, format_quant_intelligence
+from market_universe import ALL_FOREX_SYMBOLS, symbols_for_scan
 from bot_state import write_bot_snapshot
 from snapshot_bridge import upload_snapshot
 
@@ -35,10 +36,10 @@ DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "").strip()
 DISCORD_CHANNEL_ID = os.getenv("DISCORD_CHANNEL_ID", "").strip()
 DISCORD_ACCESS_BLOCKED = False
 
-SYMBOLS = [
-    "EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD",
-    "USD/CAD", "NZD/USD", "XAU/USD"
-]
+# Rotate through the complete 28-pair FX universe in seven-pair batches.
+# With the existing two-hour workflow schedule, every pair is covered every eight hours.
+# This keeps Twelve Data usage within the current scanner's request/time budget.
+SYMBOLS = symbols_for_scan(datetime.now(timezone.utc))
 
 TIMEFRAMES = {
     "M5": ("5min", 5),
@@ -1653,10 +1654,10 @@ def format_single_telegram_brief(
 ):
     """One compact, non-actionable Telegram summary for the entire scan."""
     symbols = []
-    for symbol in SYMBOLS:
+    for symbol in ALL_FOREX_SYMBOLS:
         rows = [x for x in scan_results if x.get("symbol") == symbol]
         if not rows:
-            label = "NO DATA"
+            label = "NOT IN THIS SCAN"
         else:
             bull = sum(x.get("direction") == "BULLISH" for x in rows)
             bear = sum(x.get("direction") == "BEARISH" for x in rows)
@@ -1735,7 +1736,8 @@ def format_single_telegram_brief(
         "🧪 RESEARCH / PAPER DEMO ONLY — NO ORDERS\n\n"
         f"OVERALL: {overall}\n"
         f"MTF confirmed: {len(confirmed_observations)} | research watches: {len(watch_observations)}\n"
-        f"Markets scanned: {len({x.get('symbol') for x in scan_results})}/{len(SYMBOLS)} | "
+        f"Markets scanned this batch: {len({x.get('symbol') for x in scan_results})}/{len(SYMBOLS)} | "
+        f"Universe: {len(ALL_FOREX_SYMBOLS)} FX pairs; four rotating batches cover all pairs every 8 hours | "
         f"Timeframes: {len(TIMEFRAMES)} | analyses: {len(scan_results)}\n\n"
         "MARKET HEATMAP\n" + "\n".join(symbols) + "\n\n"
         "CONFIRMED DEMO OBSERVATIONS\n"
@@ -2006,13 +2008,14 @@ def main():
     calendar_context = economic_calendar_context(
         path="economic_calendar.csv",
         as_of=scan_cutoff,
-        symbols=SYMBOLS,
+        symbols=ALL_FOREX_SYMBOLS,
         lookahead_hours=24,
     )
 
     summary = (
         "<b>Punjab Scan Complete</b>\n\n"
-        f"Markets: {len(SYMBOLS)}\n"
+        f"Markets scanned this batch: {len(SYMBOLS)} / {len(ALL_FOREX_SYMBOLS)} FX pairs\n"
+        f"Full-universe rotation: four batches; all 28 pairs every 8 hours\n"
         f"Timeframes per market: {len(TIMEFRAMES)}\n"
         f"Analyses completed: {checked}\n"
         f"New history records: {new_records}\n"
