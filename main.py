@@ -1535,6 +1535,33 @@ def format_report(r, mtf_text="Not enough matching timeframe data", confidence_l
         "Indicators can be wrong. No orders are placed.</i>"
     )
 
+def format_watch_research_report(r, reason):
+    """Format a non-actionable directional research watch, never a trade signal."""
+    if r["bull_score"] > r["bear_score"]:
+        bias = "BULLISH WATCH — RESEARCH ONLY 🟢"
+    elif r["bear_score"] > r["bull_score"]:
+        bias = "BEARISH WATCH — RESEARCH ONLY 🔴"
+    else:
+        bias = "MIXED MOMENTUM — RESEARCH ONLY 🟡"
+
+    return (
+        "━━━━━━━━━━━━━━━━━━\n"
+        "🐅 <b>PUNJAB AI ROBOT</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "🧪 <b>EDUCATIONAL RESEARCH WATCH — NOT A BUY/SELL SIGNAL</b>\n"
+        f"📊 <b>{r['symbol']}</b> | ⏱ <b>{r['timeframe']}</b>\n"
+        f"🔎 <b>{bias}</b>\n"
+        f"🧭 Reason: {html.escape(str(reason))}\n\n"
+        f"Bull score: <b>{r['bull_score']}/6</b> | Bear score: <b>{r['bear_score']}/6</b>\n"
+        f"ADX (14): <b>{r['adx']:.2f}</b> | RSI (14): <b>{r['rsi']:.2f}</b>\n"
+        f"Last completed price: <code>{r['price']:.6f}</code>\n"
+        f"Market regime: <b>{html.escape(str(r['market_regime']['label']))}</b>\n"
+        f"Candle: {r['candle_time']}\n\n"
+        "<i>Research watch only. Not a recommendation, prediction, or trading instruction. "
+        "No orders are placed.</i>"
+    )
+
+
 def format_discord_report(r):
     if r["signal"] == "BULLISH":
         signal_display = "UP 🟢"
@@ -1604,6 +1631,7 @@ def main():
     discord_sent = 0
     errors = 0
     pending_notifications = []
+    pending_watch_notifications = []
     scan_results = []
     backtest_results = []
     outcomes_evaluated = 0
@@ -1651,6 +1679,25 @@ def main():
                     # same candle because save_new_record() rejects duplicates.
                     if result.get("direction") in ("BULLISH", "BEARISH"):
                         pending_notifications.append(result)
+                    else:
+                        # A separate, non-actionable watch category broadens
+                        # research coverage without weakening directional rules.
+                        quality_status = result.get("data_quality", {}).get("status")
+                        algorithm_status = result.get("algorithmic_system", {}).get("status")
+                        bull = int(result.get("bull_score", 0))
+                        bear = int(result.get("bear_score", 0))
+                        adx_value = float(result.get("adx", 0))
+                        near_directional = (
+                            algorithm_status == "PASS"
+                            and quality_status != "FAIL"
+                            and adx_value >= 15
+                            and (
+                                (bull >= 3 and bull - bear >= 1)
+                                or (bear >= 3 and bear - bull >= 1)
+                            )
+                        )
+                        if near_directional:
+                            pending_watch_notifications.append(result)
 
                     logging.info(
                         "Recorded research observation for %s %s (direction=%s).",
@@ -1717,8 +1764,16 @@ def main():
                 f"timeframes agree; H1 aligned={decision['h1_aligned']}; "
                 f"M30 aligned={decision['m30_aligned']}; reason={decision['reason']}"
             )
-            confidence_label = "LOW-CONFIDENCE EARLY DEMO — NOT CONFIRMED"
-            send_to_discord = False
+            # Keep non-confirmed cohorts visibly separate from BUY/SELL
+            # demo labels: they are research watches, not trade signals.
+            watch_report = format_watch_research_report(
+                result,
+                f"MTF not confirmed: {decision['votes']}/{decision['scanned']} timeframes agree; {decision['reason']}"
+            )
+            if telegram(watch_report):
+                telegram_sent += 1
+                time.sleep(1)
+            continue
         else:
             logging.info(
                 "MTF %s %s %s: %s (agreement=%s/%s, H1=%s, M30=%s)",
@@ -1738,6 +1793,15 @@ def main():
             discord_report = format_discord_report(result)
             if discord_report is not None and discord(discord_report):
                 discord_sent += 1
+
+    for result in pending_watch_notifications:
+        watch_report = format_watch_research_report(
+            result,
+            "Directional indicators are developing, but the strict directional threshold was not met."
+        )
+        if telegram(watch_report):
+            telegram_sent += 1
+            time.sleep(1)
 
     logging.info(
         "MTF filter blocked %s candidates; %s incomplete.",
