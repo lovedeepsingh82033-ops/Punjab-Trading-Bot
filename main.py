@@ -1654,10 +1654,10 @@ def format_single_telegram_brief(
 ):
     """One compact, non-actionable Telegram summary for the entire scan."""
     symbols = []
-    for symbol in SYMBOLS:
+    for symbol in ALL_FOREX_SYMBOLS:
         rows = [x for x in scan_results if x.get("symbol") == symbol]
         if not rows:
-            label = "NO DATA"
+            label = "NOT IN THIS SCAN"
         else:
             bull = sum(x.get("direction") == "BULLISH" for x in rows)
             bear = sum(x.get("direction") == "BEARISH" for x in rows)
@@ -1736,7 +1736,8 @@ def format_single_telegram_brief(
         "🧪 RESEARCH / PAPER DEMO ONLY — NO ORDERS\n\n"
         f"OVERALL: {overall}\n"
         f"MTF confirmed: {len(confirmed_observations)} | research watches: {len(watch_observations)}\n"
-        f"Markets scanned: {len({x.get('symbol') for x in scan_results})}/{len(SYMBOLS)} | "
+        f"Markets scanned this batch: {len({x.get('symbol') for x in scan_results})}/{len(SYMBOLS)} | "
+        f"Universe: {len(ALL_FOREX_SYMBOLS)} FX pairs; four rotating batches cover all pairs every 8 hours | "
         f"Timeframes: {len(TIMEFRAMES)} | analyses: {len(scan_results)}\n\n"
         "MARKET HEATMAP\n" + "\n".join(symbols) + "\n\n"
         "CONFIRMED DEMO OBSERVATIONS\n"
@@ -2007,13 +2008,14 @@ def main():
     calendar_context = economic_calendar_context(
         path="economic_calendar.csv",
         as_of=scan_cutoff,
-        symbols=SYMBOLS,
+        symbols=ALL_FOREX_SYMBOLS,
         lookahead_hours=24,
     )
 
     summary = (
         "<b>Punjab Scan Complete</b>\n\n"
-        f"Markets: {len(SYMBOLS)}\n"
+        f"Markets scanned this batch: {len(SYMBOLS)} / {len(ALL_FOREX_SYMBOLS)} FX pairs\n"
+        f"Full-universe rotation: four batches; all 28 pairs every 8 hours\n"
         f"Timeframes per market: {len(TIMEFRAMES)}\n"
         f"Analyses completed: {checked}\n"
         f"New history records: {new_records}\n"
