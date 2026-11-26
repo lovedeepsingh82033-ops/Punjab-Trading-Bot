@@ -152,7 +152,7 @@ with st.sidebar:
     st.markdown("## 🧭 Navigation")
     page = st.radio(
         "Dashboard section",
-        ["Overview", "Scanner data", "Paper trading demo", "System information"],
+        ["Console", "Overview", "Scanner data", "Paper trading demo", "System information"],
         label_visibility="collapsed",
     )
     st.divider()
@@ -204,7 +204,83 @@ direction = str(latest_row.get("direction", "UNKNOWN")).upper() if latest_row is
 if direction not in {"UP", "DOWN", "BULLISH", "BEARISH", "NEUTRAL", "RANGE", "UNKNOWN"}:
     direction = "OBSERVATION"
 
-if page == "Overview":
+if page == "Console":
+    st.markdown("### 📡 MARKET INTELLIGENCE")
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("INSTRUMENT", str(latest_row.get("symbol", "—")) if latest_row is not None else "—")
+    m2.metric("LAST SAVED PRICE", value_of(latest_row, "price", ".5f"))
+    m3.metric("OBSERVATION", direction)
+    m4.metric("DATA FRESHNESS", freshness)
+    m5.metric("SAVED RECORDS", f"{len(filtered):,}")
+    st.caption(f"{fresh_detail} · Timeframes: {filtered['timeframe'].nunique() if 'timeframe' in filtered.columns else 0} · Snapshot: {'Available' if snapshot else 'Missing'}")
+    left, right = st.columns([1, 2.1], gap="large")
+    with left:
+        st.markdown("### 🤖 ROBOT STATUS")
+        robot_text = "WAITING FOR DATA" if freshness == "NO DATA" else ("CHECK DATA AGE" if freshness in {"AGING", "STALE"} else "SCANNING SAVED DATA")
+        st.markdown(f"""<div class="robot-wrap"><div class="robot-orb">🤖</div><div class="robot-status">{robot_text}</div><div class="muted">Punjab Intelligence Monitor</div><p class="muted">Research / Demo · Saved files only</p><hr><div class="muted">LAST OBSERVATION</div><b>{fresh_detail}</b></div>""", unsafe_allow_html=True)
+        st.markdown("**SYSTEM HEALTH**")
+        for label, ok in [("History file has records", not history.empty), ("Snapshot file available", bool(snapshot)), ("Latest observation recent", freshness == "RECENT")]:
+            st.write(("🟢 " if ok else "🟡 ") + label)
+    with right:
+        st.markdown("### 📈 MARKET CHART")
+        if not filtered.empty and time_col and "price" in filtered.columns:
+            chart = filtered.dropna(subset=["price", time_col]).copy()
+            chart = chart[chart["price"] > 0].sort_values(time_col)
+            if not chart.empty:
+                plot = chart.set_index(time_col)[["price"]].rename(columns={"price": "Recorded price"})
+                st.line_chart(plot, height=330, x_label="Recorded time (UTC)", y_label="Saved price")
+                st.caption("Historical saved prices only · no live market feed")
+            else:
+                st.warning("No valid positive saved prices are available.")
+        else:
+            st.warning("Waiting for saved scanner history.")
+    st.markdown("### 🧠 TECHNICAL ANALYSIS")
+    i1, i2, i3, i4, i5, i6 = st.columns(6)
+    i1.metric("RSI (14)", value_of(latest_row, "rsi"))
+    i2.metric("MACD", value_of(latest_row, "macd"))
+    i3.metric("MACD SIGNAL", value_of(latest_row, "macd_signal"))
+    i4.metric("EMA 9", value_of(latest_row, "ema9", ".5f"))
+    i5.metric("EMA 21", value_of(latest_row, "ema21", ".5f"))
+    i6.metric("EMA 50", value_of(latest_row, "ema50", ".5f"))
+    st.markdown("### 🛰️ SCANNER & ROBOT ACTIVITY")
+    scanner, activity = st.columns([1.2, 1], gap="large")
+    with scanner:
+        st.markdown("**Latest scanner observations**")
+        if not latest.empty:
+            show_cols = [x for x in ("recorded_at_utc", "signal_time", "symbol", "timeframe", "direction", "price", "rsi") if x in latest.columns]
+            st.dataframe(latest[show_cols].head(12), use_container_width=True, hide_index=True)
+        else:
+            st.info("No scanner activity has been recorded.")
+    with activity:
+        st.markdown("**Robot activity monitor**")
+        for label, status in [("Load saved history", "OK" if not history.empty else "WAITING"), ("Read latest snapshot", "OK" if snapshot else "MISSING"), ("Check observation age", freshness), ("Validate chart values", "OK" if latest_row is not None and pd.notna(latest_row.get("price")) else "WAITING")]:
+            st.write(f"• {label} — **{status}**")
+    with st.expander("🧪 PAPER RESEARCH JOURNAL — hypothetical examples only"):
+        st.caption("Learning examples only. No recommendations, broker connection, or real orders.")
+        if "paper_records" not in st.session_state:
+            st.session_state.paper_records = []
+        with st.form("console_paper_record"):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                demo_symbol = st.selectbox("Example instrument", ["XAU/USD", "EUR/USD", "GBP/USD", "USD/JPY"])
+                example_label = st.selectbox("Scenario label", ["Example A", "Example B"])
+            with c2:
+                entry = st.number_input("Example starting value", min_value=0.0, value=1.0, format="%.5f")
+                review = st.number_input("Example review value", min_value=0.0, value=1.0, format="%.5f")
+            with c3:
+                units = st.number_input("Demo units", min_value=0.01, value=1.0, step=0.1)
+                note = st.text_input("Note")
+            save = st.form_submit_button("Save hypothetical example", use_container_width=True)
+        if save and entry > 0 and review > 0:
+            st.session_state.paper_records.insert(0, {"UTC": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"), "Instrument": demo_symbol, "Scenario": example_label, "Start": entry, "Review": review, "Demo units": units, "Illustrative difference": (review-entry)*units, "Note": note})
+            st.success("Hypothetical example saved for this session.")
+        elif save:
+            st.error("Example values must be greater than zero.")
+        if st.session_state.paper_records:
+            st.dataframe(pd.DataFrame(st.session_state.paper_records), use_container_width=True, hide_index=True)
+    st.caption("Punjab AI Robot · Research dashboard · Historical observations only · No broker connection or order execution.")
+
+elif page == "Overview":
     st.markdown('<div class="section-kicker">Punjab intelligence console</div>', unsafe_allow_html=True)
     st.markdown("### 📡 Market overview")
     c1, c2, c3, c4 = st.columns(4)
