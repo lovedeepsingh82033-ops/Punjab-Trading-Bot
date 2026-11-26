@@ -205,7 +205,6 @@ if page == "Overview":
     with left:
         st.markdown("### 📈 Recorded market history")
         if not filtered.empty and "price" in filtered.columns and time_col:
-            chart_cols = [c for c in ("price", "ema9", "ema21", "ema50", "ema200") if c in filtered.columns]
             chart = filtered.dropna(subset=["price", time_col]).copy()
             chart = chart[chart["price"] > 0].sort_values(time_col)
             if not chart.empty:
