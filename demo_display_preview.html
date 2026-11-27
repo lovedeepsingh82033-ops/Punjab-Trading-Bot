@@ -5,32 +5,51 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Punjab Trading Board — Demo Display Preview</title>
 <style>
-:root{color-scheme:dark;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
-body{margin:0;background:#101827;color:#f4f7fb;padding:28px}
-main{max-width:900px;margin:auto}
-h1{margin:0 0 8px}
-.note{color:#c7d2e2;line-height:1.5;margin:0 0 24px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
-.card{background:#1b293b;border:1px solid #34465e;border-radius:14px;padding:18px}
-.status{font-size:20px;font-weight:800;margin-bottom:14px}
-.up{color:#42d392}.down{color:#ff6b6b}
-.meta{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid #34465e}
-.meta span:first-child{color:#aebed2}
-.small{font-size:12px;color:#aebed2;margin-top:22px}
+:root{color-scheme:dark;font-family:Arial,sans-serif;background:#0b1220;color:#edf2f7}
+*{box-sizing:border-box}body{margin:0;padding:28px 16px;background:linear-gradient(145deg,#0b1220,#17243a);min-height:100vh}
+main{max-width:980px;margin:auto}.top{text-align:center;margin-bottom:26px}
+h1{font-size:clamp(24px,5vw,38px);margin:0 0 10px}.sub{color:#a9b7ca}
+.clock{display:inline-block;margin-top:14px;padding:12px 18px;border:1px solid #42536c;border-radius:12px;background:#111d30;font-size:clamp(19px,4vw,26px);font-weight:700;letter-spacing:.4px}
+.note{margin:18px auto 26px;max-width:760px;padding:12px 14px;border-left:4px solid #eab308;background:#2a2618;color:#f8e7a5;border-radius:6px;font-size:14px;line-height:1.5}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
+.card{background:#152238;border:1px solid #31445f;border-radius:16px;padding:20px;box-shadow:0 8px 24px #0003}
+.direction{font-size:21px;font-weight:800;margin-bottom:16px}.up{color:#4ade80}.down{color:#fb7185}
+.field{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid #2c3d56;color:#b8c6d9}
+.field strong{color:#fff;text-align:right}.time{font-variant-numeric:tabular-nums}
+footer{text-align:center;color:#8798b0;font-size:12px;margin-top:26px}
 </style>
 </head>
 <body>
 <main>
-<h1>Punjab Trading Board — Demo Display</h1>
-<p class="note">Static visual preview only. These sample labels are not live signals, generated predictions, or trading recommendations. No trading action is connected.</p>
-<section class="grid" aria-label="Static demo display cards">
-<article class="card"><div class="status up">🟢 UP DEMO</div><div class="meta"><span>Currency Pair</span><strong>EUR/USD</strong></div><div class="meta"><span>Jordan Time</span><strong>Sample time</strong></div><div class="meta"><span>Timeframe</span><strong>1m</strong></div></article>
-<article class="card"><div class="status down">🔴 DOWN DEMO</div><div class="meta"><span>Currency Pair</span><strong>GBP/USD</strong></div><div class="meta"><span>Jordan Time</span><strong>Sample time</strong></div><div class="meta"><span>Timeframe</span><strong>2m</strong></div></article>
-<article class="card"><div class="status up">🟢 UP DEMO</div><div class="meta"><span>Currency Pair</span><strong>USD/CHF</strong></div><div class="meta"><span>Jordan Time</span><strong>Sample time</strong></div><div class="meta"><span>Timeframe</span><strong>3m</strong></div></article>
-<article class="card"><div class="status down">🔴 DOWN DEMO</div><div class="meta"><span>Currency Pair</span><strong>AUD/USD</strong></div><div class="meta"><span>Jordan Time</span><strong>Sample time</strong></div><div class="meta"><span>Timeframe</span><strong>10m</strong></div></article>
-<article class="card"><div class="status up">🟢 UP DEMO</div><div class="meta"><span>Currency Pair</span><strong>USD/JPY</strong></div><div class="meta"><span>Jordan Time</span><strong>Sample time</strong></div><div class="meta"><span>Timeframe</span><strong>30m</strong></div></article>
+<header class="top">
+<h1>Punjab Trading Board</h1>
+<div class="sub">Demo Display Preview</div>
+<div class="clock">Jordan Time: <span id="live-clock" class="time">--:--:--</span></div>
+</header>
+<div class="note"><strong>STATIC SAMPLE DISPLAY ONLY.</strong> UP DEMO and DOWN DEMO are example labels for interface testing. They are not live/generated signals, forecasts, or trading recommendations.</div>
+<section class="cards" aria-label="Static demo display examples">
+<article class="card"><div class="direction up">🟢 UP DEMO</div><div class="field"><span>Currency Pair</span><strong>EUR/USD</strong></div><div class="field"><span>Jordan Time</span><strong class="card-time time">--:--:--</strong></div><div class="field"><span>Timeframe</span><strong>1m</strong></div></article>
+<article class="card"><div class="direction down">🔴 DOWN DEMO</div><div class="field"><span>Currency Pair</span><strong>GBP/USD</strong></div><div class="field"><span>Jordan Time</span><strong class="card-time time">--:--:--</strong></div><div class="field"><span>Timeframe</span><strong>2m</strong></div></article>
+<article class="card"><div class="direction up">🟢 UP DEMO</div><div class="field"><span>Currency Pair</span><strong>USD/CHF</strong></div><div class="field"><span>Jordan Time</span><strong class="card-time time">--:--:--</strong></div><div class="field"><span>Timeframe</span><strong>3m</strong></div></article>
+<article class="card"><div class="direction down">🔴 DOWN DEMO</div><div class="field"><span>Currency Pair</span><strong>AUD/USD</strong></div><div class="field"><span>Jordan Time</span><strong class="card-time time">--:--:--</strong></div><div class="field"><span>Timeframe</span><strong>10m</strong></div></article>
+<article class="card"><div class="direction up">🟢 UP DEMO</div><div class="field"><span>Currency Pair</span><strong>USD/JPY</strong></div><div class="field"><span>Jordan Time</span><strong class="card-time time">--:--:--</strong></div><div class="field"><span>Timeframe</span><strong>30m</strong></div></article>
 </section>
-<p class="small">Display-only mockup • 15m is intentionally omitted • No live market data or trade execution</p>
+<footer>Sample pairs and directions are placeholders. No 15m card is included. No live market data or trade execution.</footer>
 </main>
+<script>
+(function(){
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Amman", hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false
+  });
+  function updateJordanClock(){
+    const value = formatter.format(new Date());
+    document.getElementById("live-clock").textContent = value;
+    document.querySelectorAll(".card-time").forEach(el => { el.textContent = value; });
+  }
+  updateJordanClock();
+  setInterval(updateJordanClock, 1000);
+})();
+</script>
 </body>
 </html>
