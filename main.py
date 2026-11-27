@@ -1543,16 +1543,24 @@ def format_watch_research_report(r, reason):
     )
 
 
-def format_gavin_style_observation(r, mtf_text, confidence_label):
-    """Compact Telegram research card in the requested visual style."""
+def format_gavin_style_observation(r, mtf_text, confidence_label, horizon_rows=None):
+    """Telegram research card with six completed historical price windows."""
     if r.get("signal") == "BULLISH":
-        direction = "BUY — DEMO 🟢 ⬆️"
+        direction = "BULLISH INDICATOR OBSERVATION 🟢"
     elif r.get("signal") == "BEARISH":
-        direction = "SELL — DEMO 🔴 ⬇️"
+        direction = "BEARISH INDICATOR OBSERVATION 🔴"
     else:
         direction = "WATCH — RESEARCH ONLY 🟡"
+    horizon_rows = horizon_rows or {}
+    horizon_lines = []
+    for minutes in (1, 2, 3, 5, 10, 30):
+        item = horizon_rows.get(minutes)
+        if item:
+            horizon_lines.append(f"{minutes}m {item['direction']} {item['change_pct']:+.3f}%")
+        else:
+            horizon_lines.append(f"{minutes}m N/A")
     return (
-        "🐅 PUNJAB AI SIGNALS — " + str(r.get("timeframe", "N/A")) + "\\n"
+        "🐅 PUNJAB TRADING ROBOT — " + str(r.get("timeframe", "N/A")) + "\\n"
         "🧪 PAPER RESEARCH / DEMO ONLY — NO ORDERS\\n\\n"
         f"📊 {r.get('symbol', 'UNKNOWN')}\\n"
         f"⏱ {r.get('timeframe', 'N/A')} timeframe\\n"
@@ -1564,10 +1572,11 @@ def format_gavin_style_observation(r, mtf_text, confidence_label):
         f"📊 ADX (14): {r.get('adx', float('nan')):.2f} — {adx_strength_status(r.get('adx', float('nan')))}\\n"
         f"💹 Last completed price: {r.get('price', float('nan')):.6f}\\n"
         f"📚 Market regime: {r.get('market_regime', {}).get('label', 'UNKNOWN')}\\n"
+        "📚 COMPLETED PRICE WINDOWS — HISTORICAL ONLY\\n"
+        + " | ".join(horizon_lines) + "\\n"
         f"🕒 Completed candle: {r.get('candle_time', 'UNKNOWN')}\\n\\n"
-        "⚠️ Historical-indicator observation only, not a prediction or instruction. No real-money trades are placed."
+        "⚠️ UP/DOWN describes completed past movement only, not what happens next. No entry timing, trading instruction, or real-money order is generated."
     )
-
 
 def format_discord_report(r):
     if r["signal"] == "BULLISH":
@@ -1616,7 +1625,7 @@ def format_discord_report(r):
 def recent_horizon_research(as_of=None):
     """Describe completed historical 1-minute price windows; never forecast future movement."""
     # Requested completed 1-minute historical windows; descriptive only.
-    horizons = (1, 2, 3, 5, 10, 60)
+    horizons = (1, 2, 3, 5, 10, 30)
     observations = {}
     for symbol in SYMBOLS:
         if API_RATE_LIMITED:
@@ -1727,7 +1736,7 @@ def format_single_telegram_brief(
     for symbol in SYMBOLS:
         values = horizon_observations.get(symbol, {})
         parts = []
-        for minutes in (1, 2, 3, 5, 10, 60):
+        for minutes in (1, 2, 3, 5, 10, 30):
             item = values.get(minutes)
             if item:
                 parts.append(f"{minutes}m {item['direction']} {item['change_pct']:+.3f}%")
@@ -2077,7 +2086,8 @@ def main():
         decision = mtf_decision(result, same_market)
         mtf_text = f"CONFIRMED {decision['votes']}/{decision['scanned']} timeframes"
         card = format_gavin_style_observation(
-            result, mtf_text, "MTF-CONFIRMED DEMO OBSERVATION"
+            result, mtf_text, "MTF-CONFIRMED RESEARCH OBSERVATION",
+            horizon_observations.get(result.get("symbol"), {})
         )
         if telegram(card):
             telegram_sent += 1
@@ -2088,7 +2098,8 @@ def main():
         decision = mtf_decision(result, same_market)
         mtf_text = f"{decision['votes']}/{decision['scanned']} timeframes; not confirmed"
         card = format_gavin_style_observation(
-            result, mtf_text, "RESEARCH WATCH — NOT A BUY/SELL SIGNAL"
+            result, mtf_text, "RESEARCH WATCH — NOT A BUY/SELL SIGNAL",
+            horizon_observations.get(result.get("symbol"), {})
         )
         if telegram(card):
             telegram_sent += 1
