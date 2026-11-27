@@ -1565,7 +1565,7 @@ def format_gavin_style_observation(r, mtf_text, confidence_label, horizon_rows=N
 
     horizon_rows = horizon_rows or {}
     horizon_lines = []
-    for minutes in (1, 2, 3, 5, 10):
+    for minutes in (1, 2, 3, 5, 10, 30):
         item = horizon_rows.get(minutes)
         if item:
             horizon_lines.append(f"{minutes}m {item['direction']} {item['change_pct']:+.3f}%")
@@ -1639,7 +1639,7 @@ def format_discord_report(r):
 def recent_horizon_research(as_of=None):
     """Describe completed historical 1-minute price windows; never forecast future movement."""
     # Requested completed 1-minute historical windows; descriptive only.
-    horizons = (1, 2, 3, 5, 10)
+    horizons = (1, 2, 3, 5, 10, 30)
     observations = {}
     for symbol in SYMBOLS:
         if API_RATE_LIMITED:
@@ -1750,7 +1750,7 @@ def format_single_telegram_brief(
     for symbol in SYMBOLS:
         values = horizon_observations.get(symbol, {})
         parts = []
-        for minutes in (1, 2, 3, 5, 10):
+        for minutes in (1, 2, 3, 5, 10, 30):
             item = values.get(minutes)
             if item:
                 parts.append(f"{minutes}m {item['direction']} {item['change_pct']:+.3f}%")
