@@ -583,31 +583,32 @@ class HistoricalWindowTelegramTests(unittest.TestCase):
 class MinimalTelegramDemoCardTests(unittest.TestCase):
     def test_bullish_card_contains_only_up_demo_and_jordan_time(self):
         card = main.format_gavin_style_observation({
-            "signal": "BULLISH",
+            "signal": "BULLISH", "symbol": "AUD/NZD", "timeframe": "1min",
             "candle_time": "2026-11-27T12:00:00Z",
         })
         self.assertIn("🟢 UP DEMO", card)
-        self.assertIn("Jordan time:", card)
-        self.assertIn("1m | 2m | 3m | 5m | 10m", card)
-        self.assertNotIn("WATCH", card)
-        self.assertNotIn("RSI", card)
-        self.assertNotIn("MTF", card)
-        self.assertNotIn("30m", card)
+        self.assertIn("💱 Currency Pair: AUD/NZD — OTC", card)
+        self.assertIn("🕒 Jordan Time: 2026-11-27 03:00 PM", card)
+        self.assertIn("⏱ Timeframe: 1 Minute", card)
+        self.assertIn("Direction: 🟢 ⬆️ UP", card)
+        for unwanted in ("WATCH", "RSI", "MTF", "Demo duration options"):
+            self.assertNotIn(unwanted, card)
 
     def test_bearish_card_contains_only_down_demo_and_jordan_time(self):
         card = main.format_gavin_style_observation({
-            "signal": "BEARISH",
+            "signal": "BEARISH", "symbol": "EUR/USD", "timeframe": "5min",
             "candle_time": "2026-11-27T12:00:00Z",
         })
         self.assertIn("🔴 DOWN DEMO", card)
-        self.assertIn("Jordan time:", card)
-        self.assertIn("1m | 2m | 3m | 5m | 10m", card)
-        self.assertNotIn("WATCH", card)
-        self.assertNotIn("RSI", card)
-        self.assertNotIn("MTF", card)
+        self.assertIn("💱 Currency Pair: EUR/USD — OTC", card)
+        self.assertIn("🕒 Jordan Time: 2026-11-27 03:00 PM", card)
+        self.assertIn("⏱ Timeframe: 5 Minutes", card)
+        self.assertIn("Direction: 🔴 ⬇️ DOWN", card)
+        for unwanted in ("WATCH", "RSI", "MTF"):
+            self.assertNotIn(unwanted, card)
 
     def test_non_directional_signal_is_suppressed(self):
         self.assertIsNone(main.format_gavin_style_observation({
-            "signal": "NEUTRAL",
+            "signal": "NEUTRAL", "symbol": "AUD/NZD", "timeframe": "1min",
             "candle_time": "2026-11-27T12:00:00Z",
         }))
