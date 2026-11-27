@@ -578,3 +578,36 @@ class HistoricalWindowTelegramTests(unittest.TestCase):
         self.assertNotIn("30m", brief)
         self.assertIn("Jordan time", brief)
         self.assertIn("MTF decision reasons:", brief)
+
+
+class MinimalTelegramDemoCardTests(unittest.TestCase):
+    def test_bullish_card_contains_only_up_demo_and_jordan_time(self):
+        card = main.format_gavin_style_observation({
+            "signal": "BULLISH",
+            "candle_time": "2026-11-27T12:00:00Z",
+        })
+        self.assertIn("🟢 UP DEMO", card)
+        self.assertIn("Jordan time:", card)
+        self.assertIn("1m | 2m | 3m | 5m | 10m", card)
+        self.assertNotIn("WATCH", card)
+        self.assertNotIn("RSI", card)
+        self.assertNotIn("MTF", card)
+        self.assertNotIn("30m", card)
+
+    def test_bearish_card_contains_only_down_demo_and_jordan_time(self):
+        card = main.format_gavin_style_observation({
+            "signal": "BEARISH",
+            "candle_time": "2026-11-27T12:00:00Z",
+        })
+        self.assertIn("🔴 DOWN DEMO", card)
+        self.assertIn("Jordan time:", card)
+        self.assertIn("1m | 2m | 3m | 5m | 10m", card)
+        self.assertNotIn("WATCH", card)
+        self.assertNotIn("RSI", card)
+        self.assertNotIn("MTF", card)
+
+    def test_non_directional_signal_is_suppressed(self):
+        self.assertIsNone(main.format_gavin_style_observation({
+            "signal": "NEUTRAL",
+            "candle_time": "2026-11-27T12:00:00Z",
+        }))
