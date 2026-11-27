@@ -1544,53 +1544,26 @@ def format_watch_research_report(r, reason):
     )
 
 
-def format_gavin_style_observation(r, mtf_text, confidence_label, horizon_rows=None):
-    """Telegram card with the individual completed-candle time and historical windows."""
+def format_gavin_style_observation(r, mtf_text=None, confidence_label=None, horizon_rows=None):
+    """Minimal paper-demo card: direction and Jordan-local observation time only."""
     if r.get("signal") == "BULLISH":
-        direction = "🟢 UP DEMO — HISTORICAL RESEARCH ONLY"
+        direction = "🟢 UP DEMO"
     elif r.get("signal") == "BEARISH":
-        direction = "🔴 DOWN DEMO — HISTORICAL RESEARCH ONLY"
+        direction = "🔴 DOWN DEMO"
     else:
         return None
 
-    candle_value = r.get("candle_time", "UNKNOWN")
+    candle_value = r.get("candle_time")
     try:
         candle_stamp = pd.to_datetime(candle_value, utc=True, errors="raise").tz_convert("Asia/Amman")
-        signal_clock = candle_stamp.strftime("%H:%M")
-        candle_display = candle_stamp.strftime("%Y-%m-%d %H:%M Jordan time")
+        signal_clock = candle_stamp.strftime("%Y-%m-%d %H:%M")
     except (TypeError, ValueError, OverflowError):
-        signal_clock = "UNKNOWN"
-        candle_display = str(candle_value)
-
-    timeframe = str(r.get("timeframe", "N/A"))
-
-    horizon_rows = horizon_rows or {}
-    horizon_lines = []
-    for minutes in (1, 2, 3, 5, 10):
-        item = horizon_rows.get(minutes)
-        if item:
-            horizon_lines.append(f"{minutes}m {item['direction']} {item['change_pct']:+.3f}%")
-        else:
-            horizon_lines.append(f"{minutes}m N/A")
+        return None
 
     return (
-        "🐅 PUNJAB TRADING ROBOT — " + timeframe + "\n"
-        "🧪 PAPER RESEARCH / DEMO ONLY — NO ORDERS\n\n"
-        f"📊 MARKET: {r.get('symbol', 'UNKNOWN')}\n"
-        f"🕒 TIME: {signal_clock} Jordan time\n"
-        f"⏱ TIMEFRAME: {timeframe}\n"
-        f"🧭 {direction}\n"
-        f"🔎 STATUS: {confidence_label}\n"
-        f"📌 MTF: {mtf_text}\n"
-        f"📈 Research scores: {r.get('bull_score', 0)}/6 vs {r.get('bear_score', 0)}/6\n"
-        f"📉 RSI (14): {r.get('rsi', float('nan')):.2f} — {rsi_zone_status(r.get('rsi', float('nan')))}\n"
-        f"📊 ADX (14): {r.get('adx', float('nan')):.2f} — {adx_strength_status(r.get('adx', float('nan')))}\n"
-        f"💹 Last completed price: {r.get('price', float('nan')):.6f}\n"
-        f"📚 Market regime: {r.get('market_regime', {}).get('label', 'UNKNOWN')}\n"
-        "📚 COMPLETED PRICE WINDOWS — HISTORICAL ONLY\n"
-        + " | ".join(horizon_lines) + "\n"
-        f"🕒 Completed candle: {candle_display}\n\n"
-        "⚠️ UP/DOWN describes completed past movement only, not what happens next. No entry timing, trading instruction, or real-money order is generated."
+        f"{direction}\\n"
+        f"🕒 Jordan time: {signal_clock}\\n"
+        "⏱ Demo duration options: 1m | 2m | 3m | 5m | 10m"
     )
 
 def format_discord_report(r):
@@ -2106,21 +2079,8 @@ def main():
             telegram_sent += 1
         time.sleep(0.15)
 
-    brief = format_single_telegram_brief(
-        scan_results=scan_results,
-        confirmed_observations=telegram_confirmed_observations,
-        watch_observations=telegram_watch_observations,
-        scanner_health=scanner_health,
-        calendar_context=calendar_context,
-        accuracy=accuracy,
-        backtest_results=backtest_results,
-        mtf_diagnostics=mtf_diagnostics,
-        errors=errors,
-        new_records=new_records,
-        horizon_observations=horizon_observations,
-    )
-    if telegram(brief[:3900]):
-        telegram_sent += 1
+    # Telegram is intentionally limited to the two minimal UP/DOWN demo cards. The full scan brief is not sent.
+
 
     # Cross-market research is descriptive only and uses aligned completed-candle returns.
     anomaly_count = sum(
