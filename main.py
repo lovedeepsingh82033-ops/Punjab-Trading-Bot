@@ -1563,6 +1563,31 @@ def format_watch_research_report(r, reason):
     )
 
 
+def format_gavin_style_observation(r, mtf_text, confidence_label):
+    """Compact Telegram research card in the requested visual style."""
+    if r.get("signal") == "BULLISH":
+        direction = "CALL UP ⬆️ 🟢"
+    elif r.get("signal") == "BEARISH":
+        direction = "PUT DOWN ⬇️ 🔴"
+    else:
+        direction = "WATCH — RESEARCH ONLY 🟡"
+    return (
+        "🐅 PUNJAB AI SIGNALS — " + str(r.get("timeframe", "N/A")) + "\\n"
+        "🧪 PAPER RESEARCH / DEMO ONLY — NO ORDERS\\n\\n"
+        f"📊 {r.get('symbol', 'UNKNOWN')}\\n"
+        f"⏱ {r.get('timeframe', 'N/A')} timeframe\\n"
+        f"🧭 {direction}\\n"
+        f"🔎 {confidence_label}\\n"
+        f"📌 MTF: {mtf_text}\\n"
+        f"📈 Bull score: {r.get('bull_score', 0)}/6 | Bear score: {r.get('bear_score', 0)}/6\\n"
+        f"📉 RSI: {r.get('rsi', float('nan')):.2f} | ADX: {r.get('adx', float('nan')):.2f}\\n"
+        f"💹 Last completed price: {r.get('price', float('nan')):.6f}\\n"
+        f"📚 Market regime: {r.get('market_regime', {}).get('label', 'UNKNOWN')}\\n"
+        f"🕒 Completed candle: {r.get('candle_time', 'UNKNOWN')}\\n\\n"
+        "⚠️ Historical-indicator observation only, not a prediction or instruction. No real-money trades are placed."
+    )
+
+
 def format_discord_report(r):
     if r["signal"] == "BULLISH":
         signal_display = "UP 🟢"
@@ -2061,7 +2086,30 @@ def main():
     # Additional 1-minute candles are used only to summarize completed historical windows.
     horizon_observations = recent_horizon_research(as_of=scan_cutoff)
 
-    # Send exactly one concise Telegram message for this completed scan.
+    # Send individual research cards and one full scan summary.
+    telegram_sent = 0
+    for result in telegram_confirmed_observations:
+        same_market = [item for item in scan_results if item.get("symbol") == result.get("symbol")]
+        decision = mtf_decision(result, same_market)
+        mtf_text = f"CONFIRMED {decision['votes']}/{decision['scanned']} timeframes"
+        card = format_gavin_style_observation(
+            result, mtf_text, "MTF-CONFIRMED DEMO OBSERVATION"
+        )
+        if telegram(card):
+            telegram_sent += 1
+        time.sleep(0.15)
+
+    for result in telegram_watch_observations:
+        same_market = [item for item in scan_results if item.get("symbol") == result.get("symbol")]
+        decision = mtf_decision(result, same_market)
+        mtf_text = f"{decision['votes']}/{decision['scanned']} timeframes; not confirmed"
+        card = format_gavin_style_observation(
+            result, mtf_text, "RESEARCH WATCH — NOT A BUY/SELL SIGNAL"
+        )
+        if telegram(card):
+            telegram_sent += 1
+        time.sleep(0.15)
+
     brief = format_single_telegram_brief(
         scan_results=scan_results,
         confirmed_observations=telegram_confirmed_observations,
@@ -2075,12 +2123,8 @@ def main():
         new_records=new_records,
         horizon_observations=horizon_observations,
     )
-    # Keep one message below Telegram's 4096-character sendMessage limit.
-    brief = brief[:3900]
-    if telegram(brief):
-        telegram_sent = 1
-    else:
-        telegram_sent = 0
+    if telegram(brief[:3900]):
+        telegram_sent += 1
 
     # Cross-market research is descriptive only and uses aligned completed-candle returns.
     anomaly_count = sum(
