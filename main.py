@@ -177,6 +177,7 @@ def telegram(message, reply_markup=None):
                 logging.error("Telegram API rejected the message (ok=false).")
                 return False
 
+        logging.info("Telegram message delivered successfully.")
         return True
 
     except (requests.RequestException, ValueError) as exc:
@@ -1561,8 +1562,8 @@ def format_gavin_style_observation(r, mtf_text=None, confidence_label=None, hori
         return None
 
     return (
-        f"{direction}\\n"
-        f"🕒 Jordan time: {signal_clock}\\n"
+        f"{direction}\n"
+        f"🕒 Jordan time: {signal_clock}\n"
         "⏱ Demo duration options: 1m | 2m | 3m | 5m | 10m"
     )
 
@@ -1937,6 +1938,14 @@ def main():
             watch_report = format_watch_research_report(
                 result,
                 f"MTF not confirmed: {decision['votes']}/{decision['scanned']} timeframes agree; {decision['reason']}"
+            )
+            # Complete, fresh directional cohorts can be delivered as paper-demo
+            # observations even without strict MTF confirmation. Incomplete or
+            # stale cohorts remain suppressed.
+            telegram_confirmed_observations.append(result)
+            logging.info(
+                "Queued complete MTF-blocked directional DEMO observation for Telegram: %s %s.",
+                result.get("symbol"), result.get("timeframe")
             )
             continue
         else:
