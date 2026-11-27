@@ -1566,9 +1566,9 @@ def format_watch_research_report(r, reason):
 def format_gavin_style_observation(r, mtf_text, confidence_label):
     """Compact Telegram research card in the requested visual style."""
     if r.get("signal") == "BULLISH":
-        direction = "CALL UP ⬆️ 🟢"
+        direction = "BUY — DEMO 🟢 ⬆️"
     elif r.get("signal") == "BEARISH":
-        direction = "PUT DOWN ⬇️ 🔴"
+        direction = "SELL — DEMO 🔴 ⬇️"
     else:
         direction = "WATCH — RESEARCH ONLY 🟡"
     return (
