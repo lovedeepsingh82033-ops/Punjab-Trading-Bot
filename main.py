@@ -1544,13 +1544,30 @@ def format_watch_research_report(r, reason):
 
 
 def format_gavin_style_observation(r, mtf_text, confidence_label, horizon_rows=None):
-    """Telegram research card with six completed historical price windows."""
+    """Telegram card with the individual completed-candle time and historical windows."""
     if r.get("signal") == "BULLISH":
         direction = "🟢 UP DEMO — HISTORICAL RESEARCH ONLY"
     elif r.get("signal") == "BEARISH":
         direction = "🔴 DOWN DEMO — HISTORICAL RESEARCH ONLY"
     else:
         direction = "🟡 WATCH DEMO — RESEARCH ONLY"
+
+    candle_value = r.get("candle_time", "UNKNOWN")
+    try:
+        candle_stamp = pd.to_datetime(candle_value, utc=True, errors="raise")
+        signal_clock = candle_stamp.strftime("%H:%M")
+        candle_display = candle_stamp.strftime("%Y-%m-%d %H:%M UTC")
+    except (TypeError, ValueError, OverflowError):
+        signal_clock = "UNKNOWN"
+        candle_display = str(candle_value)
+
+    timeframe = str(r.get("timeframe", "N/A"))
+    timeframe_minutes = TIMEFRAMES.get(timeframe, (None, None))[1]
+    duration_display = (
+        f"{timeframe_minutes} minutes (historical candle)"
+        if timeframe_minutes is not None else "Unavailable"
+    )
+
     horizon_rows = horizon_rows or {}
     horizon_lines = []
     for minutes in (1, 2, 3, 5, 10, 30):
@@ -1559,22 +1576,25 @@ def format_gavin_style_observation(r, mtf_text, confidence_label, horizon_rows=N
             horizon_lines.append(f"{minutes}m {item['direction']} {item['change_pct']:+.3f}%")
         else:
             horizon_lines.append(f"{minutes}m N/A")
+
     return (
-        "🐅 PUNJAB TRADING ROBOT — " + str(r.get("timeframe", "N/A")) + "\n"
-        "🧪 PAPER RESEARCH / DEMO ONLY — NO ORDERS\\n\\n"
-        f"📊 {r.get('symbol', 'UNKNOWN')}\\n"
-        f"⏱ {r.get('timeframe', 'N/A')} timeframe\\n"
-        f"🧭 {direction}\\n"
-        f"🔎 {confidence_label}\\n"
-        f"📌 MTF: {mtf_text}\\n"
-        f"📈 Research scores: {r.get('bull_score', 0)}/6 vs {r.get('bear_score', 0)}/6\\n"
-        f"📉 RSI (14): {r.get('rsi', float('nan')):.2f} — {rsi_zone_status(r.get('rsi', float('nan')))}\\n"
-        f"📊 ADX (14): {r.get('adx', float('nan')):.2f} — {adx_strength_status(r.get('adx', float('nan')))}\\n"
-        f"💹 Last completed price: {r.get('price', float('nan')):.6f}\\n"
-        f"📚 Market regime: {r.get('market_regime', {}).get('label', 'UNKNOWN')}\\n"
-        "📚 COMPLETED PRICE WINDOWS — HISTORICAL ONLY\\n"
-        + " | ".join(horizon_lines) + "\\n"
-        f"🕒 Completed candle: {r.get('candle_time', 'UNKNOWN')}\\n\\n"
+        "🐅 PUNJAB TRADING ROBOT — " + timeframe + "\n"
+        "🧪 PAPER RESEARCH / DEMO ONLY — NO ORDERS\n\n"
+        f"📊 MARKET: {r.get('symbol', 'UNKNOWN')}\n"
+        f"🕒 TIME: {signal_clock} UTC\n"
+        f"⏱ TIMEFRAME: {timeframe}\n"
+        f"⌛ DURATION: {duration_display}\n"
+        f"🧭 {direction}\n"
+        f"🔎 STATUS: {confidence_label}\n"
+        f"📌 MTF: {mtf_text}\n"
+        f"📈 Research scores: {r.get('bull_score', 0)}/6 vs {r.get('bear_score', 0)}/6\n"
+        f"📉 RSI (14): {r.get('rsi', float('nan')):.2f} — {rsi_zone_status(r.get('rsi', float('nan')))}\n"
+        f"📊 ADX (14): {r.get('adx', float('nan')):.2f} — {adx_strength_status(r.get('adx', float('nan')))}\n"
+        f"💹 Last completed price: {r.get('price', float('nan')):.6f}\n"
+        f"📚 Market regime: {r.get('market_regime', {}).get('label', 'UNKNOWN')}\n"
+        "📚 COMPLETED PRICE WINDOWS — HISTORICAL ONLY\n"
+        + " | ".join(horizon_lines) + "\n"
+        f"🕒 Completed candle: {candle_display}\n\n"
         "⚠️ UP/DOWN describes completed past movement only, not what happens next. No entry timing, trading instruction, or real-money order is generated."
     )
 
