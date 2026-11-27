@@ -1550,7 +1550,7 @@ def format_gavin_style_observation(r, mtf_text, confidence_label, horizon_rows=N
     elif r.get("signal") == "BEARISH":
         direction = "🔴 DOWN DEMO — HISTORICAL RESEARCH ONLY"
     else:
-        direction = "🟡 WATCH DEMO — RESEARCH ONLY"
+        return None
 
     candle_value = r.get("candle_time", "UNKNOWN")
     try:
@@ -1562,15 +1562,10 @@ def format_gavin_style_observation(r, mtf_text, confidence_label, horizon_rows=N
         candle_display = str(candle_value)
 
     timeframe = str(r.get("timeframe", "N/A"))
-    timeframe_minutes = TIMEFRAMES.get(timeframe, (None, None))[1]
-    duration_display = (
-        f"{timeframe_minutes} minutes (historical candle)"
-        if timeframe_minutes is not None else "Unavailable"
-    )
 
     horizon_rows = horizon_rows or {}
     horizon_lines = []
-    for minutes in (1, 2, 3, 5, 10, 30):
+    for minutes in (1, 2, 3, 5, 10):
         item = horizon_rows.get(minutes)
         if item:
             horizon_lines.append(f"{minutes}m {item['direction']} {item['change_pct']:+.3f}%")
@@ -1583,7 +1578,6 @@ def format_gavin_style_observation(r, mtf_text, confidence_label, horizon_rows=N
         f"📊 MARKET: {r.get('symbol', 'UNKNOWN')}\n"
         f"🕒 TIME: {signal_clock} Jordan time\n"
         f"⏱ TIMEFRAME: {timeframe}\n"
-        f"⌛ DURATION: {duration_display}\n"
         f"🧭 {direction}\n"
         f"🔎 STATUS: {confidence_label}\n"
         f"📌 MTF: {mtf_text}\n"
@@ -1645,7 +1639,7 @@ def format_discord_report(r):
 def recent_horizon_research(as_of=None):
     """Describe completed historical 1-minute price windows; never forecast future movement."""
     # Requested completed 1-minute historical windows; descriptive only.
-    horizons = (1, 2, 3, 5, 10, 30)
+    horizons = (1, 2, 3, 5, 10)
     observations = {}
     for symbol in SYMBOLS:
         if API_RATE_LIMITED:
@@ -1756,7 +1750,7 @@ def format_single_telegram_brief(
     for symbol in SYMBOLS:
         values = horizon_observations.get(symbol, {})
         parts = []
-        for minutes in (1, 2, 3, 5, 10, 30):
+        for minutes in (1, 2, 3, 5, 10):
             item = values.get(minutes)
             if item:
                 parts.append(f"{minutes}m {item['direction']} {item['change_pct']:+.3f}%")
@@ -1967,7 +1961,6 @@ def main():
                 result,
                 f"MTF not confirmed: {decision['votes']}/{decision['scanned']} timeframes agree; {decision['reason']}"
             )
-            telegram_watch_observations.append(result)
             continue
         else:
             logging.info(
@@ -1985,12 +1978,8 @@ def main():
             if discord_report is not None and discord(discord_report):
                 discord_sent += 1
 
-    for result in pending_watch_notifications:
-        watch_report = format_watch_research_report(
-            result,
-            "Directional indicators are developing, but the strict directional threshold was not met."
-        )
-        telegram_watch_observations.append(result)
+    # WATCH observations are intentionally omitted from Telegram cards.
+    telegram_watch_observations = []
 
     logging.info(
         "MTF filter blocked %s candidates; %s incomplete.",
@@ -2107,18 +2096,6 @@ def main():
         mtf_text = f"CONFIRMED {decision['votes']}/{decision['scanned']} timeframes"
         card = format_gavin_style_observation(
             result, mtf_text, "MTF-CONFIRMED RESEARCH OBSERVATION",
-            horizon_observations.get(result.get("symbol"), {})
-        )
-        if telegram(card):
-            telegram_sent += 1
-        time.sleep(0.15)
-
-    for result in telegram_watch_observations:
-        same_market = [item for item in scan_results if item.get("symbol") == result.get("symbol")]
-        decision = mtf_decision(result, same_market)
-        mtf_text = f"{decision['votes']}/{decision['scanned']} timeframes; not confirmed"
-        card = format_gavin_style_observation(
-            result, mtf_text, "RESEARCH WATCH — NOT A BUY/SELL SIGNAL",
             horizon_observations.get(result.get("symbol"), {})
         )
         if telegram(card):
