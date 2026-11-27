@@ -1554,9 +1554,9 @@ def format_gavin_style_observation(r, mtf_text, confidence_label, horizon_rows=N
 
     candle_value = r.get("candle_time", "UNKNOWN")
     try:
-        candle_stamp = pd.to_datetime(candle_value, utc=True, errors="raise")
+        candle_stamp = pd.to_datetime(candle_value, utc=True, errors="raise").tz_convert("Asia/Amman")
         signal_clock = candle_stamp.strftime("%H:%M")
-        candle_display = candle_stamp.strftime("%Y-%m-%d %H:%M UTC")
+        candle_display = candle_stamp.strftime("%Y-%m-%d %H:%M Jordan time")
     except (TypeError, ValueError, OverflowError):
         signal_clock = "UNKNOWN"
         candle_display = str(candle_value)
@@ -1581,7 +1581,7 @@ def format_gavin_style_observation(r, mtf_text, confidence_label, horizon_rows=N
         "🐅 PUNJAB TRADING ROBOT — " + timeframe + "\n"
         "🧪 PAPER RESEARCH / DEMO ONLY — NO ORDERS\n\n"
         f"📊 MARKET: {r.get('symbol', 'UNKNOWN')}\n"
-        f"🕒 TIME: {signal_clock} UTC\n"
+        f"🕒 TIME: {signal_clock} Jordan time\n"
         f"⏱ TIMEFRAME: {timeframe}\n"
         f"⌛ DURATION: {duration_display}\n"
         f"🧭 {direction}\n"
