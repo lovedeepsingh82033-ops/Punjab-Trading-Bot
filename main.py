@@ -442,75 +442,64 @@ def fetch_candles(symbol, interval, as_of=None):
     )
 
 
+def wilder_rma(series, period=14):
+    """Wilder RMA seeded by the first full period of valid observations."""
+    if not isinstance(period, int) or isinstance(period, bool) or period < 1:
+        raise ValueError("period must be a positive integer")
+    values = pd.to_numeric(series, errors="coerce").to_numpy(dtype=float)
+    output = np.full(len(values), np.nan, dtype=float)
+    seed_end = None
+    for end_index in range(period - 1, len(values)):
+        window = values[end_index - period + 1:end_index + 1]
+        if np.isfinite(window).all():
+            seed_end = end_index
+            output[end_index] = float(window.mean())
+            break
+    if seed_end is None:
+        return pd.Series(output, index=series.index, dtype=float)
+    for index in range(seed_end + 1, len(values)):
+        if np.isfinite(values[index]):
+            output[index] = output[index - 1] + (values[index] - output[index - 1]) / period
+    return pd.Series(output, index=series.index, dtype=float)
+
+
 def add_indicators(df):
+    """Calculate standard EMA, Wilder RSI/ATR/ADX, MACD and prior-candle levels."""
     df = df.copy()
+    close = pd.to_numeric(df["close"], errors="coerce")
+    high = pd.to_numeric(df["high"], errors="coerce")
+    low = pd.to_numeric(df["low"], errors="coerce")
 
-    close = df["close"]
-    high = df["high"]
-    low = df["low"]
-
-    df["ema9"] = close.ewm(
-        span=9, adjust=False
-    ).mean()
-
-    df["ema21"] = close.ewm(
-        span=21, adjust=False
-    ).mean()
-
-    df["ema50"] = close.ewm(
-        span=50, adjust=False
-    ).mean()
+    df["ema9"] = close.ewm(span=9, adjust=False).mean()
+    df["ema21"] = close.ewm(span=21, adjust=False).mean()
+    df["ema50"] = close.ewm(span=50, adjust=False).mean()
 
     change = close.diff()
-
     gains = change.clip(lower=0)
     losses = -change.clip(upper=0)
+    avg_gain = wilder_rma(gains, 14)
+    avg_loss = wilder_rma(losses, 14)
+    rsi = pd.Series(np.nan, index=df.index, dtype=float)
+    valid = avg_gain.notna() & avg_loss.notna()
+    flat = valid & avg_gain.eq(0) & avg_loss.eq(0)
+    gain_only = valid & avg_gain.gt(0) & avg_loss.eq(0)
+    loss_only = valid & avg_gain.eq(0) & avg_loss.gt(0)
+    normal = valid & avg_gain.gt(0) & avg_loss.gt(0)
+    rsi.loc[flat] = 50.0
+    rsi.loc[gain_only] = 100.0
+    rsi.loc[loss_only] = 0.0
+    rs = avg_gain.loc[normal] / avg_loss.loc[normal]
+    rsi.loc[normal] = 100.0 - (100.0 / (1.0 + rs))
+    df["rsi"] = rsi
 
-    avg_gain = gains.ewm(
-        alpha=1 / 14,
-        adjust=False,
-        min_periods=14
-    ).mean()
-
-    avg_loss = losses.ewm(
-        alpha=1 / 14,
-        adjust=False,
-        min_periods=14
-    ).mean()
-
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-
-    df["rsi"] = 100 - (100 / (1 + rs))
-
-    df.loc[
-        (avg_loss == 0) & (avg_gain > 0), "rsi"
-    ] = 100
-
-    df.loc[
-        (avg_gain == 0) & (avg_loss > 0), "rsi"
-    ] = 0
-
-    ema_fast = close.ewm(
-        span=12, adjust=False
-    ).mean()
-
-    ema_slow = close.ewm(
-        span=26, adjust=False
-    ).mean()
-
+    ema_fast = close.ewm(span=12, adjust=False).mean()
+    ema_slow = close.ewm(span=26, adjust=False).mean()
     df["macd"] = ema_fast - ema_slow
-
-    df["macd_signal"] = df["macd"].ewm(
-        span=9, adjust=False
-    ).mean()
-
-    df["macd_hist"] = (
-        df["macd"] - df["macd_signal"]
-    )
+    df["macd_signal"] = df["macd"].ewm(span=9, adjust=False).mean()
+    df["macd_hist"] = df["macd"] - df["macd_signal"]
 
     previous_close = close.shift(1)
-
-    tr = pd.concat(
+    true_range = pd.concat(
         [
             high - low,
             (high - previous_close).abs(),
@@ -518,62 +507,29 @@ def add_indicators(df):
         ],
         axis=1,
     ).max(axis=1)
-
-    df["atr"] = tr.ewm(
-        alpha=1 / 14,
-        adjust=False,
-        min_periods=14
-    ).mean()
+    df["atr"] = wilder_rma(true_range, 14)
 
     up_move = high.diff()
     down_move = -low.diff()
-
-    plus_dm = up_move.where(
-        (up_move > down_move) & (up_move > 0), 0.0
-    )
-
-    minus_dm = down_move.where(
-        (down_move > up_move) & (down_move > 0), 0.0
-    )
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+    if len(df):
+        plus_dm.iloc[0] = 0.0
+        minus_dm.iloc[0] = 0.0
 
     atr_safe = df["atr"].replace(0, np.nan)
-
-    plus_di = 100 * plus_dm.ewm(
-        alpha=1 / 14,
-        adjust=False,
-        min_periods=14
-    ).mean() / atr_safe
-
-    minus_di = 100 * minus_dm.ewm(
-        alpha=1 / 14,
-        adjust=False,
-        min_periods=14
-    ).mean() / atr_safe
-
-    dx = (
-        100 * (plus_di - minus_di).abs()
-        / (plus_di + minus_di).replace(0, np.nan)
-    )
-
-    df["adx"] = dx.ewm(
-        alpha=1 / 14,
-        adjust=False,
-        min_periods=14
-    ).mean()
-
+    plus_di = 100.0 * wilder_rma(plus_dm, 14) / atr_safe
+    minus_di = 100.0 * wilder_rma(minus_dm, 14) / atr_safe
+    di_sum = plus_di + minus_di
+    dx = 100.0 * (plus_di - minus_di).abs() / di_sum.replace(0, np.nan)
+    dx = dx.mask(di_sum.eq(0), 0.0)
+    df["adx"] = wilder_rma(dx, 14)
     df["plus_di"] = plus_di
     df["minus_di"] = minus_di
 
-    df["support"] = (
-        low.shift(1).rolling(20, min_periods=10).min()
-    )
-
-    df["resistance"] = (
-        high.shift(1).rolling(20, min_periods=10).max()
-    )
-
+    df["support"] = low.shift(1).rolling(20, min_periods=10).min()
+    df["resistance"] = high.shift(1).rolling(20, min_periods=10).max()
     return df
-
 
 def historical_backtest(df, horizon_bars=3):
     """
@@ -1426,6 +1382,30 @@ def accuracy_integrity_summary(history):
     return result
 
 
+def rsi_zone_status(rsi):
+    """Classify RSI using conventional 30/70 reference levels."""
+    value = float(rsi)
+    if not np.isfinite(value) or not 0 <= value <= 100:
+        raise ValueError("RSI must be finite and within 0..100")
+    if value <= 30:
+        return "OVERSOLD (<=30)"
+    if value >= 70:
+        return "OVERBOUGHT (>=70)"
+    return "NEUTRAL (30-70)"
+
+
+def adx_strength_status(adx):
+    """Describe ADX strength; ADX does not indicate trend direction."""
+    value = float(adx)
+    if not np.isfinite(value) or value < 0:
+        raise ValueError("ADX must be finite and non-negative")
+    if value < 20:
+        return "WEAK / RANGE-LIKE (<20)"
+    if value < 25:
+        return "DEVELOPING / MIXED (20-25)"
+    return "STRONGER TREND STRENGTH (>=25; direction not implied)"
+
+
 def rsi_momentum_status(current, previous):
     """Describe RSI movement using the latest two completed candles."""
     current, previous = float(current), float(previous)
@@ -1579,8 +1559,9 @@ def format_gavin_style_observation(r, mtf_text, confidence_label):
         f"🧭 {direction}\\n"
         f"🔎 {confidence_label}\\n"
         f"📌 MTF: {mtf_text}\\n"
-        f"📈 Bull score: {r.get('bull_score', 0)}/6 | Bear score: {r.get('bear_score', 0)}/6\\n"
-        f"📉 RSI: {r.get('rsi', float('nan')):.2f} | ADX: {r.get('adx', float('nan')):.2f}\\n"
+        f"📈 Research scores: {r.get('bull_score', 0)}/6 vs {r.get('bear_score', 0)}/6\\n"
+        f"📉 RSI (14): {r.get('rsi', float('nan')):.2f} — {rsi_zone_status(r.get('rsi', float('nan')))}\\n"
+        f"📊 ADX (14): {r.get('adx', float('nan')):.2f} — {adx_strength_status(r.get('adx', float('nan')))}\\n"
         f"💹 Last completed price: {r.get('price', float('nan')):.6f}\\n"
         f"📚 Market regime: {r.get('market_regime', {}).get('label', 'UNKNOWN')}\\n"
         f"🕒 Completed candle: {r.get('candle_time', 'UNKNOWN')}\\n\\n"
