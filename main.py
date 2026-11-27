@@ -1546,25 +1546,40 @@ def format_watch_research_report(r, reason):
 
 
 def format_gavin_style_observation(r, mtf_text=None, confidence_label=None, horizon_rows=None):
-    """Minimal paper-demo card: direction and Jordan-local observation time only."""
+    """Format a minimal educational demo card; no watch or indicator details."""
     if r.get("signal") == "BULLISH":
-        direction = "🟢 UP DEMO"
+        heading = "🟢 UP DEMO"
+        direction = "🟢 ⬆️ UP"
     elif r.get("signal") == "BEARISH":
-        direction = "🔴 DOWN DEMO"
+        heading = "🔴 DOWN DEMO"
+        direction = "🔴 ⬇️ DOWN"
     else:
         return None
 
     candle_value = r.get("candle_time")
     try:
         candle_stamp = pd.to_datetime(candle_value, utc=True, errors="raise").tz_convert("Asia/Amman")
-        signal_clock = candle_stamp.strftime("%Y-%m-%d %H:%M")
+        signal_clock = candle_stamp.strftime("%Y-%m-%d %I:%M %p")
     except (TypeError, ValueError, OverflowError):
         return None
 
+    symbol = str(r.get("symbol") or "N/A")
+    raw_timeframe = str(r.get("timeframe") or "N/A")
+    timeframe_labels = {
+        "M1": "1 Minute", "1m": "1 Minute", "1min": "1 Minute",
+        "M2": "2 Minutes", "2m": "2 Minutes", "2min": "2 Minutes",
+        "M3": "3 Minutes", "3m": "3 Minutes", "3min": "3 Minutes",
+        "M5": "5 Minutes", "5m": "5 Minutes", "5min": "5 Minutes",
+        "M10": "10 Minutes", "10m": "10 Minutes", "10min": "10 Minutes",
+    }
+    timeframe = timeframe_labels.get(raw_timeframe, raw_timeframe)
+
     return (
-        f"{direction}\n"
-        f"🕒 Jordan time: {signal_clock}\n"
-        "⏱ Demo duration options: 1m | 2m | 3m | 5m | 10m"
+        f"{heading}\n"
+        f"💱 Currency Pair: {symbol}\n"
+        f"🕒 Jordan Time: {signal_clock}\n"
+        f"⏱ Timeframe: {timeframe}\n"
+        f"Direction: {direction}"
     )
 
 def format_discord_report(r):
