@@ -1615,7 +1615,8 @@ def format_discord_report(r):
 
 def recent_horizon_research(as_of=None):
     """Describe completed historical 1-minute price windows; never forecast future movement."""
-    horizons = (1, 3, 5, 10, 20, 30)
+    # Requested completed 1-minute historical windows; descriptive only.
+    horizons = (1, 2, 3, 5, 10, 60)
     observations = {}
     for symbol in SYMBOLS:
         if API_RATE_LIMITED:
@@ -1726,7 +1727,7 @@ def format_single_telegram_brief(
     for symbol in SYMBOLS:
         values = horizon_observations.get(symbol, {})
         parts = []
-        for minutes in (1, 3, 5, 10, 20, 30):
+        for minutes in (1, 2, 3, 5, 10, 60):
             item = values.get(minutes)
             if item:
                 parts.append(f"{minutes}m {item['direction']} {item['change_pct']:+.3f}%")
@@ -1751,8 +1752,10 @@ def format_single_telegram_brief(
         + "\n\nRESEARCH WATCHES\n"
         + ("\n".join(watch_lines) if watch_lines else "No developing watch observations")
         + "\n\nLAST COMPLETED PRICE WINDOWS — HISTORICAL ONLY\n"
-        + "1-minute candles; UP/DOWN describes the past window, not the next one.\n"
+        + "1-minute candles; UP/DOWN describes completed past windows only.\n"
         + ("\n".join(horizon_lines) if horizon_lines else "Insufficient 1-minute data")
+        + "\nLead-time before a future move: NOT MEASURED — no entry timing or BUY/SELL instruction is generated.\n"
+        + f"Research brief generated (UTC): {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}\n"
         + "\n\nDATA / MARKET CONTEXT\n"
         + f"Quality: {compact_counts(quality)}\n"
         + f"Regimes: {compact_counts(regimes)}\n"
