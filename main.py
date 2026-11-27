@@ -1546,25 +1546,47 @@ def format_watch_research_report(r, reason):
 
 
 def format_gavin_style_observation(r, mtf_text=None, confidence_label=None, horizon_rows=None):
-    """Minimal paper-demo card: direction and Jordan-local observation time only."""
-    if r.get("signal") == "BULLISH":
-        direction = "🟢 UP DEMO"
-    elif r.get("signal") == "BEARISH":
-        direction = "🔴 DOWN DEMO"
+    """Format a minimal educational UP/DOWN demo observation in Jordan local time."""
+    signal = r.get("signal")
+    if signal == "BULLISH":
+        demo_label, direction = "🟢 UP DEMO", "🟢 ⬆️ UP"
+    elif signal == "BEARISH":
+        demo_label, direction = "🔴 DOWN DEMO", "🔴 ⬇️ DOWN"
     else:
         return None
 
-    candle_value = r.get("candle_time")
     try:
-        candle_stamp = pd.to_datetime(candle_value, utc=True, errors="raise").tz_convert("Asia/Amman")
-        signal_clock = candle_stamp.strftime("%Y-%m-%d %H:%M")
+        candle_stamp = pd.to_datetime(
+            r.get("candle_time"), utc=True, errors="raise"
+        ).tz_convert("Asia/Amman")
+        jordan_clock = candle_stamp.strftime("%Y-%m-%d %I:%M %p")
     except (TypeError, ValueError, OverflowError):
         return None
 
+    symbol = str(r.get("symbol") or "").strip()
+    timeframe = str(r.get("timeframe") or "").strip()
+    if not symbol or not timeframe:
+        return None
+    if not symbol.upper().endswith("OTC"):
+        symbol = f"{symbol} — OTC"
+
+    labels = {
+        "1m": "1 Minute", "1min": "1 Minute", "1 minute": "1 Minute",
+        "2m": "2 Minutes", "2min": "2 Minutes", "2 minutes": "2 Minutes",
+        "3m": "3 Minutes", "3min": "3 Minutes", "3 minutes": "3 Minutes",
+        "5m": "5 Minutes", "5min": "5 Minutes", "5 minutes": "5 Minutes",
+        "10m": "10 Minutes", "10min": "10 Minutes", "10 minutes": "10 Minutes",
+        "15m": "15 Minutes", "15min": "15 Minutes", "15 minutes": "15 Minutes",
+        "30m": "30 Minutes", "30min": "30 Minutes", "30 minutes": "30 Minutes",
+        "1h": "1 Hour", "60min": "1 Hour",
+    }
+    timeframe_label = labels.get(timeframe.lower(), timeframe)
     return (
-        f"{direction}\n"
-        f"🕒 Jordan time: {signal_clock}\n"
-        "⏱ Demo duration options: 1m | 2m | 3m | 5m | 10m"
+        f"{demo_label}\n"
+        f"💱 Currency Pair: {symbol}\n"
+        f"🕒 Jordan Time: {jordan_clock}\n"
+        f"⏱ Timeframe: {timeframe_label}\n"
+        f"Direction: {direction}"
     )
 
 def format_discord_report(r):
