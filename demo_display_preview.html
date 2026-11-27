@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Punjab Trading Board — Demo Display Preview</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+body{margin:0;background:#101827;color:#f4f7fb;padding:28px}
+main{max-width:900px;margin:auto}
+h1{margin:0 0 8px}
+.note{color:#c7d2e2;line-height:1.5;margin:0 0 24px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.card{background:#1b293b;border:1px solid #34465e;border-radius:14px;padding:18px}
+.status{font-size:20px;font-weight:800;margin-bottom:14px}
+.up{color:#42d392}.down{color:#ff6b6b}
+.meta{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid #34465e}
+.meta span:first-child{color:#aebed2}
+.small{font-size:12px;color:#aebed2;margin-top:22px}
+</style>
+</head>
+<body>
+<main>
+<h1>Punjab Trading Board — Demo Display</h1>
+<p class="note">Static visual preview only. These sample labels are not live signals, generated predictions, or trading recommendations. No trading action is connected.</p>
+<section class="grid" aria-label="Static demo display cards">
+<article class="card"><div class="status up">🟢 UP DEMO</div><div class="meta"><span>Currency Pair</span><strong>EUR/USD</strong></div><div class="meta"><span>Jordan Time</span><strong>Sample time</strong></div><div class="meta"><span>Timeframe</span><strong>1m</strong></div></article>
+<article class="card"><div class="status down">🔴 DOWN DEMO</div><div class="meta"><span>Currency Pair</span><strong>GBP/USD</strong></div><div class="meta"><span>Jordan Time</span><strong>Sample time</strong></div><div class="meta"><span>Timeframe</span><strong>2m</strong></div></article>
+<article class="card"><div class="status up">🟢 UP DEMO</div><div class="meta"><span>Currency Pair</span><strong>USD/CHF</strong></div><div class="meta"><span>Jordan Time</span><strong>Sample time</strong></div><div class="meta"><span>Timeframe</span><strong>3m</strong></div></article>
+<article class="card"><div class="status down">🔴 DOWN DEMO</div><div class="meta"><span>Currency Pair</span><strong>AUD/USD</strong></div><div class="meta"><span>Jordan Time</span><strong>Sample time</strong></div><div class="meta"><span>Timeframe</span><strong>10m</strong></div></article>
+<article class="card"><div class="status up">🟢 UP DEMO</div><div class="meta"><span>Currency Pair</span><strong>USD/JPY</strong></div><div class="meta"><span>Jordan Time</span><strong>Sample time</strong></div><div class="meta"><span>Timeframe</span><strong>30m</strong></div></article>
+</section>
+<p class="small">Display-only mockup • 15m is intentionally omitted • No live market data or trade execution</p>
+</main>
+</body>
+</html>
