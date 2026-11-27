@@ -584,11 +584,15 @@ class MinimalTelegramDemoCardTests(unittest.TestCase):
     def test_bullish_card_contains_only_up_demo_and_jordan_time(self):
         card = main.format_gavin_style_observation({
             "signal": "BULLISH",
+            "symbol": "AUD/NZD — OTC",
+            "timeframe": "M1",
             "candle_time": "2026-11-27T12:00:00Z",
         })
         self.assertIn("🟢 UP DEMO", card)
-        self.assertIn("Jordan time:", card)
-        self.assertIn("1m | 2m | 3m | 5m | 10m", card)
+        self.assertIn("Currency Pair: AUD/NZD — OTC", card)
+        self.assertIn("Jordan Time: 2026-11-27 02:00 PM", card)
+        self.assertIn("Timeframe: 1 Minute", card)
+        self.assertIn("Direction: 🟢 ⬆️ UP", card)
         self.assertNotIn("WATCH", card)
         self.assertNotIn("RSI", card)
         self.assertNotIn("MTF", card)
@@ -597,11 +601,15 @@ class MinimalTelegramDemoCardTests(unittest.TestCase):
     def test_bearish_card_contains_only_down_demo_and_jordan_time(self):
         card = main.format_gavin_style_observation({
             "signal": "BEARISH",
+            "symbol": "EUR/USD — OTC",
+            "timeframe": "M5",
             "candle_time": "2026-11-27T12:00:00Z",
         })
         self.assertIn("🔴 DOWN DEMO", card)
-        self.assertIn("Jordan time:", card)
-        self.assertIn("1m | 2m | 3m | 5m | 10m", card)
+        self.assertIn("Currency Pair: EUR/USD — OTC", card)
+        self.assertIn("Jordan Time: 2026-11-27 02:00 PM", card)
+        self.assertIn("Timeframe: 5 Minutes", card)
+        self.assertIn("Direction: 🔴 ⬇️ DOWN", card)
         self.assertNotIn("WATCH", card)
         self.assertNotIn("RSI", card)
         self.assertNotIn("MTF", card)
