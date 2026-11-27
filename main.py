@@ -4,6 +4,7 @@ import logging
 import html
 import re
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 import requests
 import pandas as pd
@@ -1565,7 +1566,7 @@ def format_gavin_style_observation(r, mtf_text, confidence_label, horizon_rows=N
 
     horizon_rows = horizon_rows or {}
     horizon_lines = []
-    for minutes in (1, 2, 3, 5, 10, 30):
+    for minutes in (1, 2, 3, 5, 10):
         item = horizon_rows.get(minutes)
         if item:
             horizon_lines.append(f"{minutes}m {item['direction']} {item['change_pct']:+.3f}%")
@@ -1639,7 +1640,7 @@ def format_discord_report(r):
 def recent_horizon_research(as_of=None):
     """Describe completed historical 1-minute price windows; never forecast future movement."""
     # Requested completed 1-minute historical windows; descriptive only.
-    horizons = (1, 2, 3, 5, 10, 30)
+    horizons = (1, 2, 3, 5, 10)
     observations = {}
     for symbol in SYMBOLS:
         if API_RATE_LIMITED:
@@ -1750,7 +1751,7 @@ def format_single_telegram_brief(
     for symbol in SYMBOLS:
         values = horizon_observations.get(symbol, {})
         parts = []
-        for minutes in (1, 2, 3, 5, 10, 30):
+        for minutes in (1, 2, 3, 5, 10):
             item = values.get(minutes)
             if item:
                 parts.append(f"{minutes}m {item['direction']} {item['change_pct']:+.3f}%")
@@ -1778,7 +1779,7 @@ def format_single_telegram_brief(
         + "1-minute candles; UP/DOWN describes completed past windows only.\n"
         + ("\n".join(horizon_lines) if horizon_lines else "Insufficient 1-minute data")
         + "\nLead-time before a future move: NOT MEASURED — no entry timing or BUY/SELL instruction is generated.\n"
-        + f"Research brief generated (UTC): {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}\n"
+        + f"Research brief generated: {datetime.now(ZoneInfo('Asia/Amman')).strftime('%Y-%m-%d %H:%M:%S')} Jordan time\n"
         + "\n\nDATA / MARKET CONTEXT\n"
         + f"Quality: {compact_counts(quality)}\n"
         + f"Regimes: {compact_counts(regimes)}\n"
@@ -1792,6 +1793,9 @@ def format_single_telegram_brief(
         + f"Directional hit rate: {hit_rate_text}\n"
         + f"Scanner health: {health_status} ({completion:.1f}%) | processing errors: {errors} | new records: {new_records}\n"
         + f"MTF gate: {mtf_diagnostics.get('passed', 0)} passed / {mtf_diagnostics.get('candidates', 0)} candidates\n"
+        + "MTF decision reasons: "
+        + (", ".join(f"{name} {count}" for name, count in sorted(mtf_diagnostics.get("reasons", {}).items(), key=lambda pair: (-pair[1], pair[0]))) or "No directional candidates")
+        + "\n"
         + f"Holdout sample leaders: {backtest_line}\n"
         + "\nNo live calendar feed is assumed; events appear only when source-attributed rows are configured.\n"
         + "\nHistorical diagnostics only. Not a prediction or recommendation. No orders are placed."
