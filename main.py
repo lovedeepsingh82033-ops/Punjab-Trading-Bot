@@ -1546,11 +1546,11 @@ def format_watch_research_report(r, reason):
 def format_gavin_style_observation(r, mtf_text, confidence_label, horizon_rows=None):
     """Telegram research card with six completed historical price windows."""
     if r.get("signal") == "BULLISH":
-        direction = "BULLISH INDICATOR OBSERVATION 🟢"
+        direction = "🟢 UP DEMO — HISTORICAL RESEARCH ONLY"
     elif r.get("signal") == "BEARISH":
-        direction = "BEARISH INDICATOR OBSERVATION 🔴"
+        direction = "🔴 DOWN DEMO — HISTORICAL RESEARCH ONLY"
     else:
-        direction = "WATCH — RESEARCH ONLY 🟡"
+        direction = "🟡 WATCH DEMO — RESEARCH ONLY"
     horizon_rows = horizon_rows or {}
     horizon_lines = []
     for minutes in (1, 2, 3, 5, 10, 30):
@@ -1560,7 +1560,7 @@ def format_gavin_style_observation(r, mtf_text, confidence_label, horizon_rows=N
         else:
             horizon_lines.append(f"{minutes}m N/A")
     return (
-        "🐅 PUNJAB TRADING ROBOT — " + str(r.get("timeframe", "N/A")) + "\\n"
+        "🐅 PUNJAB TRADING ROBOT — " + str(r.get("timeframe", "N/A")) + "\n"
         "🧪 PAPER RESEARCH / DEMO ONLY — NO ORDERS\\n\\n"
         f"📊 {r.get('symbol', 'UNKNOWN')}\\n"
         f"⏱ {r.get('timeframe', 'N/A')} timeframe\\n"
