@@ -541,3 +541,40 @@ class SignalMomentumContextTests(unittest.TestCase):
             with self.subTest(function=function.__name__):
                 with self.assertRaises(ValueError):
                     function(float("nan"), 1.0)
+
+
+class HistoricalWindowTelegramTests(unittest.TestCase):
+    def test_brief_lists_only_requested_historical_windows(self):
+        with patch.object(main, "SYMBOLS", ["EUR/USD"]):
+            brief = main.format_single_telegram_brief(
+                scan_results=[],
+                confirmed_observations=[],
+                watch_observations=[],
+                scanner_health={"status": "HEALTHY", "completion_pct": 100},
+                calendar_context={"status": "NOT_CONFIGURED", "count": 0, "events": []},
+                accuracy={"win_rate": None, "completed": 0, "correct": 0,
+                          "incorrect": 0, "flat": 0},
+                backtest_results=[],
+                mtf_diagnostics={"passed": 0, "candidates": 0, "reasons": {}},
+                errors=0,
+                new_records=0,
+                horizon_observations={
+                    "EUR/USD": {
+                        1: {"direction": "UP", "change_pct": 0.1},
+                        2: {"direction": "DOWN", "change_pct": -0.2},
+                        3: {"direction": "UP", "change_pct": 0.3},
+                        5: {"direction": "FLAT", "change_pct": 0.0},
+                        10: {"direction": "DOWN", "change_pct": -0.4},
+                        30: {"direction": "UP", "change_pct": 0.5},
+                    }
+                },
+            )
+
+        self.assertIn("1m UP", brief)
+        self.assertIn("2m DOWN", brief)
+        self.assertIn("3m UP", brief)
+        self.assertIn("5m FLAT", brief)
+        self.assertIn("10m DOWN", brief)
+        self.assertNotIn("30m", brief)
+        self.assertIn("Jordan time", brief)
+        self.assertIn("MTF decision reasons:", brief)
